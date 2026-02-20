@@ -3,14 +3,20 @@
 // ============================================================
 
 function h(elType, elProps = {}, ...elChildren) {
-  const _elChildren = elChildren.map((child) => {
-    if (typeof child === "string" || typeof child === "number")
-      return {
-        type: "TEXT_ELEMENT",
-        props: { nodeValue: child },
-      };
-    return child;
-  });
+  const _elChildren = elChildren
+    .flat(Infinity) // Safely unwrap nested arrays from .map()
+    .filter(
+      (child) =>
+        child !== null && child !== undefined && typeof child !== "boolean", // Strips out 'false' from {condition && element}
+    )
+    .map((child) => {
+      if (typeof child === "string" || typeof child === "number")
+        return {
+          type: "TEXT_ELEMENT",
+          props: { nodeValue: child },
+        };
+      return child;
+    });
 
   return { type: elType, props: { ...elProps, children: _elChildren } };
 }
@@ -37,7 +43,11 @@ function mount(vNode, container) {
     if (attribute.startsWith("on")) {
       dom.addEventListener(attribute.toLowerCase().slice(2).trim(), value);
     } else if (!excluded.has(attribute)) {
-      dom[attribute] = value;
+      if (attribute.includes("-")) {
+        dom.setAttribute(attribute, value);
+      } else {
+        dom[attribute] = value;
+      }
     }
   }
 
@@ -70,18 +80,27 @@ const patchProps = function (oldProps, newProps, dom) {
 
   const excluded = new Set(["children", "nodeValue"]);
 
+  // 1. ADD or UPDATE props
   newPropsArr.forEach((attribute) => {
     if (
       (!oldPropsArr.includes(attribute) ||
         oldProps[attribute] !== newProps[attribute]) &&
       !excluded.has(attribute)
-    )
-      dom[attribute] = newProps[attribute];
+    ) {
+      // Apply the same hyphen check here
+      if (attribute.includes("-")) {
+        dom.setAttribute(attribute, newProps[attribute]);
+      } else {
+        dom[attribute] = newProps[attribute];
+      }
+    }
   });
 
+  // 2. REMOVE old props
   oldPropsArr.forEach((attribute) => {
-    if (!newPropsArr.includes(attribute) && !excluded.has(attribute))
-      dom.removeAttribute(attribute);
+    if (!newPropsArr.includes(attribute) && !excluded.has(attribute)) {
+      dom.removeAttribute(attribute); // This already works great for data-/aria- tags!
+    }
   });
 };
 
@@ -138,6 +157,75 @@ const createRoot = function (container) {
     },
   };
 };
+
+// ============================================================
+// KOREAN SEARCH HELPERS
+// ============================================================
+
+// The 19 choseong (initial consonants) in syllable-block order,
+// stored as compatibility jamo — the same code points a Korean keyboard types.
+const CHOSEONG = [
+  "ㄱ",
+  "ㄲ",
+  "ㄴ",
+  "ㄷ",
+  "ㄸ",
+  "ㄹ",
+  "ㅁ",
+  "ㅂ",
+  "ㅃ",
+  "ㅅ",
+  "ㅆ",
+  "ㅇ",
+  "ㅈ",
+  "ㅉ",
+  "ㅊ",
+  "ㅋ",
+  "ㅌ",
+  "ㅍ",
+  "ㅎ",
+];
+
+// Extract the choseong of a single Korean syllable block, or return the char as-is.
+function getChoseong(char) {
+  const code = char.charCodeAt(0);
+  if (code >= 0xac00 && code <= 0xd7a3) {
+    return CHOSEONG[Math.floor((code - 0xac00) / 588)];
+  }
+  return char;
+}
+
+// Map every syllable in a string to its choseong, leaving non-syllables untouched.
+// e.g. "안경" → "ㅇㄱ"
+function extractChoseong(str) {
+  return [...str].map(getChoseong).join("");
+}
+
+// True when every character in the query is a standalone Korean consonant jamo
+// (U+3131–U+314E), meaning the user is doing a choseong-only search.
+function isChoseongQuery(str) {
+  return (
+    str.length > 0 &&
+    [...str].every((ch) => {
+      const c = ch.charCodeAt(0);
+      return c >= 0x3131 && c <= 0x314e;
+    })
+  );
+}
+
+// Smart filter: choseong-match when the query is all consonants, case-insensitive otherwise.
+function matchesFilter(opt, filterText) {
+  if (!filterText) return true;
+  if (isChoseongQuery(filterText))
+    return extractChoseong(opt).startsWith(filterText);
+  return opt.toLowerCase().startsWith(filterText.toLowerCase());
+}
+
+// True when a group label contains the filter text (case-insensitive).
+function labelMatchesFilter(label, filterText) {
+  if (!label || !filterText) return false;
+  return label.toLowerCase().includes(filterText.toLowerCase());
+}
 
 // ============================================================
 // DATA
@@ -257,18 +345,40 @@ const CONCEPTS_WITH_SUBCONCEPT = new Set(["인플루언서", "기능"]);
 // STATE
 // ============================================================
 
-const state = createStore({
-  format: "",
-  product: "",
-  concept: "",
-  subConcept: "",
-  identifier: "",
-  version: "",
-  openDropdown: null, // which field's dropdown is open
-});
+const URL_FIELDS = [
+  "format",
+  "product",
+  "concept",
+  "subConcept",
+  "identifier",
+  "version",
+];
+
+function stateFromURL() {
+  const p = new URLSearchParams(location.search);
+  const s = { openDropdown: null };
+  URL_FIELDS.forEach((k) => {
+    s[k] = p.get(k) || "";
+  });
+  return s;
+}
+
+function syncStateToURL(s) {
+  const p = new URLSearchParams();
+  URL_FIELDS.forEach((k) => {
+    if (s[k]) p.set(k, s[k]);
+  });
+  const qs = p.toString();
+  history.replaceState(null, "", qs ? `?${qs}` : location.pathname);
+}
+
+const state = createStore(stateFromURL());
 
 // Per-field filter text for searchable dropdowns (not in state to avoid cursor reset)
 const dropdownFilters = {};
+
+// Per-field highlighted option index for keyboard navigation (-1 = none)
+const dropdownHighlight = {};
 
 // Declared here, assigned at the bottom after root is created
 let root;
@@ -276,14 +386,82 @@ function rerender() {
   root.render(App());
 }
 
+// Kept in sync with the latest successful buildName result so the keydown
+// handler can copy without touching the DOM.
+let currentVariants = [];
+
+// Session copy history — newest first, cleared on page reload.
+let copyHistory = [];
+const COPY_HISTORY_MAX = 20;
+
+function addToCopyHistory(label, name) {
+  copyHistory = [{ label, name }, ...copyHistory].slice(0, COPY_HISTORY_MAX);
+  rerender();
+}
+
 function clearFilter(fieldName) {
   if (!fieldName) return;
   delete dropdownFilters[fieldName];
-  const openMenu = document.querySelector(".dropdown-menu.open");
-  if (openMenu) {
-    const input = openMenu.querySelector(".dropdown-search-input");
-    if (input) input.value = "";
+  delete dropdownHighlight[fieldName];
+  // (The document.querySelector stuff used to be here - you can safely delete it!)
+}
+
+// Returns the group definition for fields that have grouped options.
+// Shared between rendering and keyboard navigation so they stay in sync.
+function getGroupsForField(fieldName) {
+  const s = state.get();
+  switch (fieldName) {
+    case "product":
+      return PRODUCT.groups;
+    case "concept":
+      return CONCEPT_GROUPS;
+    case "subConcept":
+      return s.concept === "기능" ? FUNCTION_GROUPS : null;
+    default:
+      return null;
   }
+}
+
+// Returns the currently visible (post-filter) flat option list for a field.
+// If the filter matches a group label, all items in that group are included.
+function getVisibleOptionsForField(fieldName) {
+  const s = state.get();
+  const filterText = dropdownFilters[fieldName] || "";
+  let options;
+  switch (fieldName) {
+    case "format":
+      options = FORMAT_OPTIONS;
+      break;
+    case "product":
+      options = PRODUCT.flat;
+      break;
+    case "concept":
+      options = CONCEPT_OPTIONS;
+      break;
+    case "subConcept":
+      options =
+        s.concept === "인플루언서"
+          ? INFLUENCER_OPTIONS
+          : s.concept === "기능"
+            ? FUNCTION_OPTIONS
+            : [];
+      break;
+    case "version":
+      options = VERSION_OPTIONS;
+      break;
+    default:
+      return [];
+  }
+  if (!filterText) return options;
+  const groups = getGroupsForField(fieldName);
+  if (groups) {
+    return groups.flatMap(({ label, items }) =>
+      labelMatchesFilter(label, filterText)
+        ? items
+        : items.filter((opt) => matchesFilter(opt, filterText)),
+    );
+  }
+  return options.filter((opt) => matchesFilter(opt, filterText));
 }
 
 // ============================================================
@@ -300,6 +478,7 @@ function toggleDropdown(fieldName) {
     openDropdown: willOpen ? fieldName : null,
   });
   if (willOpen) {
+    delete dropdownHighlight[fieldName];
     setTimeout(() => {
       const openMenu = document.querySelector(".dropdown-menu.open");
       if (openMenu) {
@@ -337,11 +516,43 @@ function toggleVersion() {
   toggleDropdown("version");
 }
 
+// Stable clear handlers — stop propagation so the trigger doesn't also open
+function handleClearFormat(e) {
+  e.stopPropagation();
+  selectOption("format", "");
+}
+function handleClearProduct(e) {
+  e.stopPropagation();
+  selectOption("product", "");
+}
+function handleClearConcept(e) {
+  e.stopPropagation();
+  selectOption("concept", "");
+}
+function handleClearSubConcept(e) {
+  e.stopPropagation();
+  selectOption("subConcept", "");
+}
+function handleClearVersion(e) {
+  e.stopPropagation();
+  selectOption("version", "");
+}
+
+// Backspace/Delete on a focused trigger button (Tab navigation mode) clears the field
+function handleTriggerKeyDown(e) {
+  if (e.key !== "Backspace" && e.key !== "Delete") return;
+  const fieldName = e.currentTarget.getAttribute("data-field");
+  if (!fieldName) return;
+  if (state.get().openDropdown === fieldName) return; // dropdown is open, don't interfere
+  e.preventDefault();
+  selectOption(fieldName, "");
+}
+
 // Stable menu click handlers — use event delegation via data-value JS property
 function onMenuClick(fieldName, e) {
   const optionEl = e.target.closest(".dropdown-option");
   if (!optionEl) return;
-  const val = optionEl["data-value"];
+  const val = optionEl.getAttribute("data-value");
   if (val == null) return;
   selectOption(fieldName, val);
 }
@@ -362,38 +573,89 @@ function handleVersionMenuClick(e) {
   onMenuClick("version", e);
 }
 
+// Identifier history — persists across sessions via localStorage
+const IDENTIFIER_HISTORY_KEY = "ad-gen-identifiers";
+const IDENTIFIER_HISTORY_MAX = 10;
+
+function loadIdentifierHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(IDENTIFIER_HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveIdentifierToHistory(value) {
+  if (!value.trim()) return;
+  const prev = loadIdentifierHistory();
+  const next = [value, ...prev.filter((v) => v !== value)].slice(
+    0,
+    IDENTIFIER_HISTORY_MAX,
+  );
+  localStorage.setItem(IDENTIFIER_HISTORY_KEY, JSON.stringify(next));
+}
+
 // Text input
 function handleIdentifierInput(e) {
   state.set({ ...state.get(), identifier: e.target.value });
 }
 
+function handleIdentifierBlur(e) {
+  saveIdentifierToHistory(e.target.value);
+}
+
 // Searchable dropdown filter inputs
 function handleProductFilterInput(e) {
   dropdownFilters.product = e.target.value;
+  delete dropdownHighlight.product;
   rerender();
 }
 function handleConceptFilterInput(e) {
   dropdownFilters.concept = e.target.value;
+  delete dropdownHighlight.concept;
   rerender();
 }
 function handleSubConceptFilterInput(e) {
   dropdownFilters.subConcept = e.target.value;
+  delete dropdownHighlight.subConcept;
   rerender();
 }
 
 // Copy handlers — read name from element property so they never go stale
+
 function handleVariantCopy(e) {
-  const name = e.currentTarget["data-copy-text"];
+  const name = e.currentTarget.getAttribute("data-copy-text");
+  const label = e.currentTarget.getAttribute("data-copy-label");
   if (name) {
     navigator.clipboard.writeText(name);
-    showToast("파일명이 복사되었어요");
+    addToCopyHistory(label || "", name);
+    showToast("복사되었어요", name);
   }
 }
 
-function showToast(message) {
+function handleHistoryItemCopy(e) {
+  const name = e.currentTarget.getAttribute("data-copy-text");
+  if (name) {
+    navigator.clipboard.writeText(name);
+    showToast("복사되었어요", name);
+  }
+}
+
+function showToast(message, name) {
   const toast = document.createElement("div");
   toast.className = "toast";
-  toast.textContent = message;
+  if (name) {
+    const label = document.createElement("div");
+    label.className = "toast-label";
+    label.textContent = message;
+    const nameEl = document.createElement("div");
+    nameEl.className = "toast-name";
+    nameEl.textContent = name;
+    toast.appendChild(label);
+    toast.appendChild(nameEl);
+  } else {
+    toast.textContent = message;
+  }
   document.body.appendChild(toast);
 
   requestAnimationFrame(() => {
@@ -416,6 +678,63 @@ document.addEventListener("click", (e) => {
   ) {
     clearFilter(state.get().openDropdown);
     state.set({ ...state.get(), openDropdown: null });
+  }
+});
+
+// Keyboard navigation for open dropdowns
+document.addEventListener("keydown", (e) => {
+  const { openDropdown } = state.get();
+  if (!openDropdown) return;
+
+  if (e.key === "Escape") {
+    clearFilter(openDropdown);
+    state.set({ ...state.get(), openDropdown: null });
+    return;
+  }
+
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    e.preventDefault();
+    const options = getVisibleOptionsForField(openDropdown);
+    if (options.length === 0) return;
+    const current = dropdownHighlight[openDropdown] ?? -1;
+    dropdownHighlight[openDropdown] =
+      e.key === "ArrowDown"
+        ? Math.min(current + 1, options.length - 1)
+        : Math.max(current - 1, 0);
+    rerender();
+    setTimeout(() => {
+      const highlighted = document.querySelector(
+        ".dropdown-menu.open .dropdown-option.highlighted",
+      );
+      if (highlighted) highlighted.scrollIntoView({ block: "nearest" });
+    }, 0);
+    return;
+  }
+
+  if (e.key === "Enter") {
+    const options = getVisibleOptionsForField(openDropdown);
+    const current = dropdownHighlight[openDropdown] ?? -1;
+    if (current >= 0 && current < options.length) {
+      e.preventDefault();
+      const fieldName = openDropdown;
+      delete dropdownHighlight[fieldName];
+      selectOption(fieldName, options[current]);
+    }
+  }
+});
+
+// Number key shortcuts (1–5) to copy output variants.
+// Only fires when no input is focused and no dropdown is open.
+document.addEventListener("keydown", (e) => {
+  if (state.get().openDropdown) return;
+  if (document.activeElement.tagName === "INPUT") return;
+
+  const idx = parseInt(e.key, 10);
+  if (idx >= 1 && idx <= 5 && currentVariants[idx - 1]) {
+    const variant = currentVariants[idx - 1];
+    navigator.clipboard.writeText(variant.name);
+    addToCopyHistory(variant.label, variant.name);
+    showToast("복사됨", variant.name);
   }
 });
 
@@ -480,13 +799,24 @@ function buildName(fields) {
 // ============================================================
 
 // Shared option renderer used by CustomDropdown (flat and grouped modes)
-function renderOption(opt, selectedValue, subOptions) {
+function renderOption(
+  fieldName,
+  opt,
+  selectedValue,
+  subOptions,
+  isHighlighted,
+) {
+  const classes = ["dropdown-option"];
+  if (selectedValue === opt) classes.push("selected");
+  if (isHighlighted) classes.push("highlighted");
   return h(
     "div",
     {
-      className:
-        selectedValue === opt ? "dropdown-option selected" : "dropdown-option",
+      id: `dropdown-option-${fieldName}-${opt.replace(/\s+/g, "-")}`,
+      className: classes.join(" "),
       "data-value": opt,
+      role: "option",
+      "aria-selected": selectedValue === opt,
     },
     h("span", { className: "option-label" }, opt),
     subOptions && subOptions.has(opt)
@@ -514,13 +844,17 @@ const CustomDropdown = (props) => {
     onFilterInput,
     subOptions,
     groups,
+    onClear,
+    ariaLabelId,
+    activeDescendantId,
   } = props;
   const isOpen = state.get().openDropdown === fieldName;
   const filterText = dropdownFilters[fieldName] || "";
   const filteredOptions =
     searchable && filterText
-      ? options.filter((opt) => opt.includes(filterText))
+      ? options.filter((opt) => matchesFilter(opt, filterText))
       : options;
+  const highlightIdx = dropdownHighlight[fieldName] ?? -1;
 
   return h(
     "div",
@@ -528,14 +862,33 @@ const CustomDropdown = (props) => {
     h(
       "button",
       {
+        id: `dropdown-trigger-${fieldName}`,
         className: isOpen ? "dropdown-trigger open" : "dropdown-trigger",
         onClick: onToggle,
+        onKeyDown: handleTriggerKeyDown,
+        "data-field": fieldName,
         type: "button",
+        role: "combobox",
+        "aria-haspopup": "listbox",
+        "aria-expanded": isOpen,
+        "aria-controls": `dropdown-menu-${fieldName}`,
+        "aria-labelledby": ariaLabelId,
+        "aria-activedescendant": activeDescendantId,
       },
       h(
         "span",
         { className: value ? "dropdown-value" : "dropdown-value placeholder" },
         value || "선택",
+      ),
+      h(
+        "span",
+        {
+          className: value
+            ? "dropdown-clear"
+            : "dropdown-clear dropdown-clear--hidden",
+          onClick: onClear,
+        },
+        h("span", { className: "material-symbols-rounded" }, "close"),
       ),
       h(
         "span",
@@ -546,8 +899,10 @@ const CustomDropdown = (props) => {
     h(
       "div",
       {
+        id: `dropdown-menu-${fieldName}`,
         className: isOpen ? "dropdown-menu open" : "dropdown-menu",
         onClick: onMenuClick,
+        role: "listbox",
       },
       searchable
         ? h(
@@ -562,29 +917,69 @@ const CustomDropdown = (props) => {
               className: "dropdown-search-input",
               type: "text",
               placeholder: "검색",
+              value: filterText,
               onInput: onFilterInput,
             }),
           )
         : null,
       ...(groups
-        ? groups.flatMap(({ label, items }) => {
-            const visibleItems = filterText
-              ? items.filter((opt) => opt.includes(filterText))
-              : items;
-            if (visibleItems.length === 0) return [];
+        ? (() => {
+            let optIdx = 0;
+            let anyVisible = false;
+            const rendered = groups.flatMap(({ label, items }) => {
+              const groupMatch = labelMatchesFilter(label, filterText);
+              const visibleItems =
+                filterText && !groupMatch
+                  ? items.filter((opt) => matchesFilter(opt, filterText))
+                  : items;
+              if (visibleItems.length === 0) return [];
+              anyVisible = true;
+              return [
+                ...(label
+                  ? [h("div", { className: "dropdown-group-label" }, label)]
+                  : []),
+                ...visibleItems.map((opt) => {
+                  const isHighlighted = optIdx === highlightIdx;
+                  optIdx++;
+                  return renderOption(
+                    fieldName,
+                    opt,
+                    value,
+                    subOptions,
+                    isHighlighted,
+                  );
+                }),
+              ];
+            });
             return [
-              ...(label
-                ? [h("div", { className: "dropdown-group-label" }, label)]
-                : []),
-              ...visibleItems.map((opt) =>
-                renderOption(opt, value, subOptions),
-              ),
+              ...rendered,
+              searchable && filterText && !anyVisible
+                ? h(
+                    "div",
+                    { className: "dropdown-no-results" },
+                    "검색 결과가 없어요",
+                  )
+                : null,
             ];
-          })
-        : filteredOptions.map((opt) => renderOption(opt, value, subOptions))),
-      searchable && filterText && filteredOptions.length === 0
-        ? h("div", { className: "dropdown-no-results" }, "검색 결과가 없어요")
-        : null,
+          })()
+        : [
+            ...filteredOptions.map((opt, i) =>
+              renderOption(
+                fieldName,
+                opt,
+                value,
+                subOptions,
+                i === highlightIdx,
+              ),
+            ),
+            searchable && filterText && filteredOptions.length === 0
+              ? h(
+                  "div",
+                  { className: "dropdown-no-results" },
+                  "검색 결과가 없어요",
+                )
+              : null,
+          ]),
     ),
   );
 };
@@ -604,13 +999,14 @@ const DropdownField = (props) => {
     onFilterInput,
     subOptions,
     groups,
+    onClear,
   } = props;
   return h(
     "div",
     { className: "field-row" },
     h(
       "label",
-      { className: "field-label" },
+      { className: "field-label", id: `dropdown-label-${fieldName}` },
       h("span", { className: "material-symbols-rounded field-icon" }, icon),
       label,
       h("span", { className: "field-tooltip" }, tooltip),
@@ -625,13 +1021,17 @@ const DropdownField = (props) => {
       onFilterInput,
       subOptions,
       groups,
+      onClear,
+      ariaLabelId: `dropdown-label-${fieldName}`,
     }),
   );
 };
 
 // Labeled row wrapping the free text input
+// Labeled row wrapping the free text input
 const InputField = (props) => {
-  const { label, icon, onInput, placeholder, tooltip } = props;
+  // 1. Add 'value' to your destructured props
+  const { label, icon, value, onInput, onBlur, placeholder, tooltip } = props;
   return h(
     "div",
     { className: "field-row" },
@@ -645,7 +1045,9 @@ const InputField = (props) => {
     h("input", {
       className: "field-input",
       type: "text",
+      value: value, // 2. Bind the state value to the input element
       onInput,
+      onBlur,
       placeholder,
     }),
   );
@@ -692,11 +1094,57 @@ const OutputDisplay = (props) => {
           },
           h("span", { className: "output-variant-label" }, label),
           h("div", { className: "output-name" }, name),
+          h("kbd", { className: "shortcut-hint" }, String(i + 1)),
           h(
             "button",
             {
               className: "copy-btn",
               onClick: handleVariantCopy,
+              "data-copy-text": name,
+              "data-copy-label": label,
+              title: "복사",
+            },
+            h(
+              "span",
+              { className: "material-symbols-rounded" },
+              "content_copy",
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+};
+
+const CopyHistoryCard = (props) => {
+  const { history } = props;
+  return h(
+    "div",
+    { className: "card history-card" },
+    h(
+      "div",
+      { className: "history-header" },
+      h(
+        "span",
+        { className: "material-symbols-rounded history-icon" },
+        "history",
+      ),
+      "최근 복사",
+    ),
+    h(
+      "div",
+      { className: "history-list" },
+      ...history.map(({ label, name }) =>
+        h(
+          "div",
+          { className: "history-item" },
+          h("span", { className: "history-item-label" }, label),
+          h("div", { className: "history-item-name" }, name),
+          h(
+            "button",
+            {
+              className: "copy-btn",
+              onClick: handleHistoryItemCopy,
               "data-copy-text": name,
               title: "복사",
             },
@@ -723,26 +1171,42 @@ function App() {
         : [];
   const subConceptGroups = s.concept === "기능" ? FUNCTION_GROUPS : null;
   const result = buildName(s);
+  currentVariants = result.status === "success" ? result.variants : [];
+
+  // Calculate activeDescendantId for the currently open dropdown
+  let activeDescendantId = undefined;
+  if (s.openDropdown) {
+    const options = getVisibleOptionsForField(s.openDropdown);
+    const highlightedOptionIndex = dropdownHighlight[s.openDropdown];
+    if (
+      highlightedOptionIndex !== undefined &&
+      options[highlightedOptionIndex]
+    ) {
+      const highlightedOption = options[highlightedOptionIndex];
+      activeDescendantId = `dropdown-option-${s.openDropdown}-${highlightedOption.replace(/\s+/g, "-")}`;
+    }
+  }
 
   return h(
     "div",
     { id: "app" },
-    h(
-      "header",
-      { className: "app-header" },
-      h("h1", { className: "app-title" }, "APPSILON 소재명 생성기"),
-      h(
-        "p",
-        { className: "app-subtitle" },
-        "몇 가지 선택만으로 소재명을 만들어드려요",
-      ),
-    ),
     h(
       "main",
       {},
       h(
         "div",
         { className: "card" },
+        h(
+          "header",
+          { className: "app-header" },
+          h("h1", { className: "app-title" }, "APPSILON 소재명 생성기"),
+          h(
+            "p",
+            { className: "app-subtitle" },
+            "몇 가지 선택만으로 광고 소재명을 만들어드려요",
+          ),
+        ),
+
         h(
           "div",
           { className: "field-list" },
@@ -754,7 +1218,10 @@ function App() {
             options: FORMAT_OPTIONS,
             onToggle: toggleFormat,
             onMenuClick: handleFormatMenuClick,
+            onClear: handleClearFormat,
             tooltip: "소재 파일의 형식을 구분하는 항목",
+            activeDescendantId:
+              s.openDropdown === "format" ? activeDescendantId : undefined,
           }),
           h(DropdownField, {
             label: "제품",
@@ -765,6 +1232,7 @@ function App() {
             groups: PRODUCT.groups,
             onToggle: toggleProduct,
             onMenuClick: handleProductMenuClick,
+            onClear: handleClearProduct,
             tooltip: "이 소재가 홍보하는 제품을 선택하는 항목",
             searchable: true,
             onFilterInput: handleProductFilterInput,
@@ -777,6 +1245,7 @@ function App() {
             options: CONCEPT_OPTIONS,
             onToggle: toggleConcept,
             onMenuClick: handleConceptMenuClick,
+            onClear: handleClearConcept,
             tooltip: "소재의 핵심 콘셉트를 선택하는 항목",
             searchable: true,
             onFilterInput: handleConceptFilterInput,
@@ -798,6 +1267,7 @@ function App() {
               options: subConceptOptions,
               onToggle: toggleSubConcept,
               onMenuClick: handleSubConceptMenuClick,
+              onClear: handleClearSubConcept,
               tooltip: "특정 콘셉트를 더 정밀하게 분류하기 위해 사용하는 항목",
               searchable: true,
               onFilterInput: handleSubConceptFilterInput,
@@ -807,9 +1277,11 @@ function App() {
           h(InputField, {
             label: "소재 고유 식별자",
             icon: "badge",
+            value: s.identifier, // Add this line to pass the state down
             onInput: handleIdentifierInput,
-            placeholder: "예: 바이럴, 완전커버",
-            tooltip: "팀 내 빠른 소통을 위해 붙이는 소재의 짧은 별명",
+            onBlur: handleIdentifierBlur,
+            placeholder: "예: 바이럴, 여름세일, 블프",
+            tooltip: "내부 소통을 위해 붙이는 소재의 짧은 별명",
           }),
           h(DropdownField, {
             label: "버전",
@@ -819,12 +1291,16 @@ function App() {
             options: VERSION_OPTIONS,
             onToggle: toggleVersion,
             onMenuClick: handleVersionMenuClick,
+            onClear: handleClearVersion,
             tooltip: "해당 소재의 버전을 입력하는 항목",
           }),
         ),
         h("div", { className: "divider" }),
         h(OutputDisplay, { result }),
       ),
+      copyHistory.length > 0
+        ? h(CopyHistoryCard, { history: copyHistory })
+        : null,
     ),
     h(
       "footer",
@@ -853,5 +1329,8 @@ function App() {
 // ============================================================
 
 root = createRoot(document.body);
-state.subscribe(() => root.render(App()));
+state.subscribe(() => {
+  syncStateToURL(state.get());
+  root.render(App());
+});
 root.render(App());
