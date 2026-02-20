@@ -390,12 +390,54 @@ function rerender() {
 // handler can copy without touching the DOM.
 let currentVariants = [];
 
-// Session copy history — newest first, cleared on page reload.
-let copyHistory = [];
+// Undo stack — stores snapshots of URL fields only, not transient UI state.
+const UNDO_MAX = 50;
+let undoStack = [];
+
+function getFieldSnapshot() {
+  const s = state.get();
+  return URL_FIELDS.reduce((acc, k) => ({ ...acc, [k]: s[k] }), {});
+}
+
+function pushUndoSnapshot() {
+  undoStack = [getFieldSnapshot(), ...undoStack].slice(0, UNDO_MAX);
+}
+
+function handleUndo() {
+  if (undoStack.length === 0) return;
+  const [prev, ...rest] = undoStack;
+  undoStack = rest;
+  state.set({ ...state.get(), ...prev, openDropdown: null });
+  showToast("되돌렸어요");
+}
+
+// Copy history — newest first, persisted to localStorage.
+const COPY_HISTORY_KEY = "ad-gen-copy-history";
 const COPY_HISTORY_MAX = 20;
+
+function loadCopyHistory() {
+  try {
+    return JSON.parse(localStorage.getItem(COPY_HISTORY_KEY) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function saveCopyHistory(history) {
+  localStorage.setItem(COPY_HISTORY_KEY, JSON.stringify(history));
+}
+
+let copyHistory = loadCopyHistory();
 
 function addToCopyHistory(label, name) {
   copyHistory = [{ label, name }, ...copyHistory].slice(0, COPY_HISTORY_MAX);
+  saveCopyHistory(copyHistory);
+  rerender();
+}
+
+function handleClearHistory() {
+  copyHistory = [];
+  saveCopyHistory(copyHistory);
   rerender();
 }
 
@@ -493,6 +535,7 @@ function toggleDropdown(fieldName) {
 // Uses event delegation: the handler reads data-value from the clicked option element,
 // so the closure never goes stale even when option lists change.
 function selectOption(fieldName, value) {
+  if (state.get()[fieldName] !== value) pushUndoSnapshot();
   clearFilter(fieldName);
   const updates = { ...state.get(), [fieldName]: value, openDropdown: null };
   if (fieldName === "concept") updates.subConcept = "";
@@ -595,13 +638,85 @@ function saveIdentifierToHistory(value) {
   localStorage.setItem(IDENTIFIER_HISTORY_KEY, JSON.stringify(next));
 }
 
+// Identifier autocomplete state
+let identifierSuggestionsOpen = false;
+let identifierHighlight = -1;
+
+function getIdentifierSuggestions() {
+  const { identifier } = state.get();
+  const history = loadIdentifierHistory();
+  if (!history.length) return [];
+  if (!identifier) return history;
+  return history.filter(
+    (v) =>
+      v.toLowerCase().startsWith(identifier.toLowerCase()) && v !== identifier,
+  );
+}
+
+function selectIdentifierSuggestion(value) {
+  state.set({ ...state.get(), identifier: value });
+  saveIdentifierToHistory(value);
+  identifierSuggestionsOpen = false;
+  identifierHighlight = -1;
+}
+
+function handleSuggestionMouseDown(e) {
+  const item = e.target.closest(".suggestion-item");
+  if (!item) return;
+  e.preventDefault();
+  const value = item.getAttribute("data-value");
+  if (value != null) selectIdentifierSuggestion(value);
+}
+
 // Text input
 function handleIdentifierInput(e) {
+  identifierHighlight = -1;
   state.set({ ...state.get(), identifier: e.target.value });
 }
 
+let identifierSnapshotOnFocus = null;
+
+function handleIdentifierFocus() {
+  identifierSnapshotOnFocus = getFieldSnapshot();
+  identifierSuggestionsOpen = true;
+  identifierHighlight = -1;
+  rerender();
+}
+
 function handleIdentifierBlur(e) {
+  if (
+    identifierSnapshotOnFocus &&
+    e.target.value !== identifierSnapshotOnFocus.identifier
+  ) {
+    undoStack = [identifierSnapshotOnFocus, ...undoStack].slice(0, UNDO_MAX);
+  }
+  identifierSnapshotOnFocus = null;
   saveIdentifierToHistory(e.target.value);
+  identifierSuggestionsOpen = false;
+  identifierHighlight = -1;
+  rerender();
+}
+
+function handleIdentifierKeyDown(e) {
+  if (!identifierSuggestionsOpen) return;
+  const suggestions = getIdentifierSuggestions();
+  if (!suggestions.length) return;
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    identifierHighlight = Math.min(identifierHighlight + 1, suggestions.length - 1);
+    rerender();
+  } else if (e.key === "ArrowUp") {
+    e.preventDefault();
+    identifierHighlight = Math.max(identifierHighlight - 1, -1);
+    rerender();
+  } else if (e.key === "Enter" && identifierHighlight >= 0) {
+    e.preventDefault();
+    selectIdentifierSuggestion(suggestions[identifierHighlight]);
+  } else if (e.key === "Escape") {
+    identifierSuggestionsOpen = false;
+    identifierHighlight = -1;
+    rerender();
+  }
 }
 
 // Searchable dropdown filter inputs
@@ -631,6 +746,11 @@ function handleVariantCopy(e) {
     addToCopyHistory(label || "", name);
     showToast("복사되었어요", name);
   }
+}
+
+function handleCopyLink() {
+  navigator.clipboard.writeText(location.href);
+  showToast("공유용 링크가 복사되었어요");
 }
 
 function handleHistoryItemCopy(e) {
@@ -723,6 +843,15 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
+// Undo: Ctrl+Z / Cmd+Z — only when no input is focused (let browser handle text undo).
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "z") {
+    if (document.activeElement.tagName === "INPUT") return;
+    e.preventDefault();
+    handleUndo();
+  }
+});
+
 // Number key shortcuts (1–5) to copy output variants.
 // Only fires when no input is focused and no dropdown is open.
 document.addEventListener("keydown", (e) => {
@@ -789,7 +918,10 @@ function buildName(fields) {
   const base = [format, product, conceptPart, identifier, version].join("_");
   const variants = [
     { label: "공통", name: base },
-    ...SPEC_OPTIONS.map((spec) => ({ label: spec, name: `${base}_${spec}` })),
+    ...SPEC_OPTIONS.map((spec) => ({
+      label: spec.replace("x", "×"),
+      name: `${base}_${spec}`,
+    })),
   ];
   return { status: "success", variants };
 }
@@ -1028,10 +1160,20 @@ const DropdownField = (props) => {
 };
 
 // Labeled row wrapping the free text input
-// Labeled row wrapping the free text input
 const InputField = (props) => {
-  // 1. Add 'value' to your destructured props
-  const { label, icon, value, onInput, onBlur, placeholder, tooltip } = props;
+  const {
+    label,
+    icon,
+    value,
+    onInput,
+    onBlur,
+    onFocus,
+    onKeyDown,
+    placeholder,
+    tooltip,
+    suggestions,
+    highlightIdx,
+  } = props;
   return h(
     "div",
     { className: "field-row" },
@@ -1042,14 +1184,42 @@ const InputField = (props) => {
       label,
       h("span", { className: "field-tooltip" }, tooltip),
     ),
-    h("input", {
-      className: "field-input",
-      type: "text",
-      value: value, // 2. Bind the state value to the input element
-      onInput,
-      onBlur,
-      placeholder,
-    }),
+    h(
+      "div",
+      { className: "input-wrapper" },
+      h("input", {
+        className: "field-input",
+        type: "text",
+        value,
+        onInput,
+        onBlur,
+        onFocus,
+        onKeyDown,
+        placeholder,
+      }),
+      suggestions && suggestions.length > 0
+        ? h(
+            "div",
+            {
+              className: "suggestions-menu",
+              onMouseDown: handleSuggestionMouseDown,
+            },
+            ...suggestions.map((s, i) =>
+              h(
+                "div",
+                {
+                  className:
+                    i === highlightIdx
+                      ? "suggestion-item highlighted"
+                      : "suggestion-item",
+                  "data-value": s,
+                },
+                s,
+              ),
+            ),
+          )
+        : null,
+    ),
   );
 };
 
@@ -1116,6 +1286,38 @@ const OutputDisplay = (props) => {
   );
 };
 
+const ShareSection = () =>
+  h(
+    "div",
+    { className: "share-section" },
+    h("p", { className: "share-heading" }, "광고 소재 이름이 생성되었어요!"),
+    h(
+      "p",
+      { className: "share-subtext" },
+      "링크를 공유하면 공유 받은 사람도 같은 소재명을 바로 확인할 수 있어요",
+    ),
+    h(
+      "div",
+      { className: "share-input-row" },
+      h("input", {
+        className: "share-url-input",
+        type: "text",
+        value: decodeURIComponent(location.href),
+        readOnly: true,
+      }),
+      h(
+        "button",
+        {
+          className: "share-copy-btn",
+          onClick: handleCopyLink,
+          type: "button",
+          title: "링크 복사",
+        },
+        h("span", { className: "material-symbols-rounded" }, "content_copy"),
+      ),
+    ),
+  );
+
 const CopyHistoryCard = (props) => {
   const { history } = props;
   return h(
@@ -1130,6 +1332,18 @@ const CopyHistoryCard = (props) => {
         "history",
       ),
       "최근 복사",
+      h(
+        "button",
+        {
+          className: "history-clear-btn",
+          onClick: handleClearHistory,
+          tabIndex: -1,
+          type: "button",
+          title: "기록 지우기",
+        },
+        h("span", { className: "material-symbols-rounded" }, "delete_sweep"),
+        "지우기",
+      ),
     ),
     h(
       "div",
@@ -1277,11 +1491,17 @@ function App() {
           h(InputField, {
             label: "소재 고유 식별자",
             icon: "badge",
-            value: s.identifier, // Add this line to pass the state down
+            value: s.identifier,
             onInput: handleIdentifierInput,
             onBlur: handleIdentifierBlur,
+            onFocus: handleIdentifierFocus,
+            onKeyDown: handleIdentifierKeyDown,
             placeholder: "예: 바이럴, 여름세일, 블프",
             tooltip: "내부 소통을 위해 붙이는 소재의 짧은 별명",
+            suggestions: identifierSuggestionsOpen
+              ? getIdentifierSuggestions()
+              : [],
+            highlightIdx: identifierHighlight,
           }),
           h(DropdownField, {
             label: "버전",
@@ -1296,6 +1516,7 @@ function App() {
           }),
         ),
         h("div", { className: "divider" }),
+        result.status === "success" ? h(ShareSection, {}) : null,
         h(OutputDisplay, { result }),
       ),
       copyHistory.length > 0
