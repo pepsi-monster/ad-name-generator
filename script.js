@@ -753,6 +753,20 @@ function handleCopyLink() {
   showToast("공유용 링크가 복사되었어요");
 }
 
+function handleCopyAll() {
+  if (!currentVariants.length) return;
+  navigator.clipboard.writeText(currentVariants.map((v) => v.name).join("\n"));
+  showToast("모두 복사되었어요");
+}
+
+let shortcutsOpen = false;
+
+function handleToggleShortcuts(e) {
+  e.stopPropagation();
+  shortcutsOpen = !shortcutsOpen;
+  rerender();
+}
+
 function handleHistoryItemCopy(e) {
   const name = e.currentTarget.getAttribute("data-copy-text");
   if (name) {
@@ -789,6 +803,14 @@ function showToast(message, name) {
     });
   }, 2000);
 }
+
+// Close shortcuts panel when clicking outside
+document.addEventListener("click", (e) => {
+  if (shortcutsOpen && !e.target.closest(".footer-shortcuts-wrapper")) {
+    shortcutsOpen = false;
+    rerender();
+  }
+});
 
 // Close dropdown when clicking outside any dropdown container
 document.addEventListener("click", (e) => {
@@ -1283,6 +1305,46 @@ const OutputDisplay = (props) => {
         ),
       ),
     ),
+    h(
+      "div",
+      { className: "output-copy-all" },
+      h(
+        "button",
+        { className: "copy-all-btn", onClick: handleCopyAll, type: "button" },
+        h("span", { className: "material-symbols-rounded" }, "content_copy"),
+        "모두 복사하기",
+      ),
+    ),
+  );
+};
+
+const ShortcutsPanel = () => {
+  const isMac = /Mac|iPhone|iPad|iPod/.test(navigator.userAgent);
+  const modKey = isMac ? "⌘" : "Ctrl";
+  const rows = [
+    { keys: ["1", "–", "5"], desc: "소재명 복사" },
+    { keys: [modKey, "Z"], desc: "되돌리기" },
+    { keys: ["↑", "↓"], desc: "드롭다운 탐색" },
+    { keys: ["Enter"], desc: "옵션 선택" },
+    { keys: ["Esc"], desc: "드롭다운 닫기" },
+    { keys: ["⌫"], desc: "필드 지우기" },
+  ];
+  return h(
+    "div",
+    { className: "shortcuts-panel" },
+    h("div", { className: "shortcuts-panel-title" }, "단축키"),
+    ...rows.map(({ keys, desc }) =>
+      h(
+        "div",
+        { className: "shortcut-row" },
+        h(
+          "div",
+          { className: "shortcut-keys" },
+          ...keys.map((k) => h("kbd", { className: "shortcut-key" }, k)),
+        ),
+        h("span", { className: "shortcut-desc" }, desc),
+      ),
+    ),
   );
 };
 
@@ -1526,6 +1588,25 @@ function App() {
     h(
       "footer",
       { className: "app-footer" },
+      h(
+        "div",
+        { className: "footer-shortcuts-wrapper" },
+        shortcutsOpen ? h(ShortcutsPanel, {}) : null,
+        h(
+          "button",
+          {
+            className: "footer-link footer-shortcuts-btn",
+            onClick: handleToggleShortcuts,
+            type: "button",
+          },
+          h(
+            "span",
+            { className: "material-symbols-rounded footer-icon" },
+            "keyboard",
+          ),
+          "단축키",
+        ),
+      ),
       h(
         "a",
         {
