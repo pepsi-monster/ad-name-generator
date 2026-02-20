@@ -86,6 +86,7 @@ const patchProps = function (oldProps, newProps, dom) {
 };
 
 const diff = function (oldVNode, newVNode, parent) {
+  if (!oldVNode && !newVNode) return;
   if (!oldVNode) {
     mount(newVNode, parent);
   } else if (!newVNode) {
@@ -142,32 +143,36 @@ const createRoot = function (container) {
 // DATA
 // ============================================================
 
-const FORMAT_OPTIONS = ["비디오", "이미지"];
+const FORMAT_OPTIONS = ["비디오", "이미지", "캐러셀"];
 
 const PRODUCT_OPTIONS = [
   "ALL",
-  "M1",
-  "파인버블",
-  "브러시",
-  "쓸림쏙",
-  "파인셔스",
-  "카사업",
+  { label: "Refa", items: ["M1", "파인버블", "브러시", "카사업"] },
+  { label: "Like Eat", items: ["쓸림쏙", "파인셔스"] },
 ];
 
-const CONCEPT_OPTIONS = [
-  "감성",
-  "기능",
-  "대세감",
-  "리뷰",
-  "문제해결",
-  "비교",
-  "인물",
-  "인플루언서",
-  "일반인",
-  "정보",
-  "할인",
-  "공감형",
+// Parses a mixed definition (plain strings + {label, items} objects) into
+// a flat options array for filtering and a groups array for rendering.
+// Standalone strings become a null-label group (rendered without a header).
+function parseMixedOptions(def) {
+  const standalone = def.filter((x) => typeof x === "string");
+  const grouped = def.filter((x) => typeof x !== "string");
+  const flat = [...standalone, ...grouped.flatMap((g) => g.items)];
+  const groups = [
+    ...(standalone.length ? [{ label: null, items: standalone }] : []),
+    ...grouped,
+  ];
+  return { flat, groups };
+}
+
+const PRODUCT = parseMixedOptions(PRODUCT_OPTIONS);
+
+const CONCEPT_GROUPS = [
+  { label: "인물/공감", items: ["인물", "인플루언서", "일반인", "공감형"] },
+  { label: "정보/설득", items: ["기능", "정보", "리뷰", "문제해결", "비교"] },
+  { label: "감성/퍼포먼스", items: ["감성", "대세감", "할인"] },
 ];
+const CONCEPT_OPTIONS = CONCEPT_GROUPS.flatMap((g) => g.items);
 
 const INFLUENCER_OPTIONS = [
   "나노",
@@ -178,54 +183,58 @@ const INFLUENCER_OPTIONS = [
   "메가",
 ];
 
-const FUNCTION_OPTIONS = [
-  "보습",
-  "진정",
-  "미백",
-  "탄력",
-  "커버",
-  "지속력",
-  "각질",
-  "광채",
-  "휴대성",
-  "올인원",
-  "대용량",
-  "펌프형",
-  "이지워시",
-  "퀵",
-  "흡수력",
-  "끈적임없음",
-  "발림성",
-  "향",
-  "무향",
-  "순함",
-  "비건",
-  "성분",
-  "가성비",
-  "사은품",
-  "한정판",
-  "활력",
-  "면역",
-  "수면",
-  "기억력",
-  "혈행",
-  "눈건강",
-  "관절",
-  "간건강",
-  "체지방",
-  "쾌변",
-  "붓기",
-  "소화",
-  "목넘김",
-  "맛",
-  "제형",
-  "하루한알",
-  "고함량",
-  "유기농",
-  "2in1",
-  "클렌징",
-  "탈모",
+const FUNCTION_GROUPS = [
+  {
+    label: "피부 효능",
+    items: ["보습", "진정", "미백", "탄력", "커버", "지속력", "각질", "광채"],
+  },
+  {
+    label: "사용감",
+    items: ["흡수력", "끈적임없음", "발림성", "향", "무향", "제형"],
+  },
+  {
+    label: "편의/포장",
+    items: [
+      "휴대성",
+      "올인원",
+      "대용량",
+      "펌프형",
+      "이지워시",
+      "퀵",
+      "하루한알",
+      "2in1",
+      "클렌징",
+    ],
+  },
+  {
+    label: "성분/안전",
+    items: ["순함", "비건", "성분", "유기농", "고함량", "탈모"],
+  },
+  {
+    label: "가격/혜택",
+    items: ["가성비", "사은품", "한정판"],
+  },
+  {
+    label: "건강기능식품",
+    items: [
+      "활력",
+      "면역",
+      "수면",
+      "기억력",
+      "혈행",
+      "눈건강",
+      "관절",
+      "간건강",
+      "체지방",
+      "쾌변",
+      "붓기",
+      "소화",
+      "목넘김",
+      "맛",
+    ],
+  },
 ];
+const FUNCTION_OPTIONS = FUNCTION_GROUPS.flatMap((g) => g.items);
 
 const VERSION_OPTIONS = [
   "v1",
@@ -255,9 +264,27 @@ const state = createStore({
   subConcept: "",
   identifier: "",
   version: "",
-  spec: "",
   openDropdown: null, // which field's dropdown is open
 });
+
+// Per-field filter text for searchable dropdowns (not in state to avoid cursor reset)
+const dropdownFilters = {};
+
+// Declared here, assigned at the bottom after root is created
+let root;
+function rerender() {
+  root.render(App());
+}
+
+function clearFilter(fieldName) {
+  if (!fieldName) return;
+  delete dropdownFilters[fieldName];
+  const openMenu = document.querySelector(".dropdown-menu.open");
+  if (openMenu) {
+    const input = openMenu.querySelector(".dropdown-search-input");
+    if (input) input.value = "";
+  }
+}
 
 // ============================================================
 // HANDLERS
@@ -266,16 +293,28 @@ const state = createStore({
 // Dropdown open/close
 function toggleDropdown(fieldName) {
   const current = state.get().openDropdown;
+  const willOpen = current !== fieldName;
+  clearFilter(current);
   state.set({
     ...state.get(),
-    openDropdown: current === fieldName ? null : fieldName,
+    openDropdown: willOpen ? fieldName : null,
   });
+  if (willOpen) {
+    setTimeout(() => {
+      const openMenu = document.querySelector(".dropdown-menu.open");
+      if (openMenu) {
+        const input = openMenu.querySelector(".dropdown-search-input");
+        if (input) input.focus();
+      }
+    }, 0);
+  }
 }
 
 // Select an option and close the dropdown.
 // Uses event delegation: the handler reads data-value from the clicked option element,
 // so the closure never goes stale even when option lists change.
 function selectOption(fieldName, value) {
+  clearFilter(fieldName);
   const updates = { ...state.get(), [fieldName]: value, openDropdown: null };
   if (fieldName === "concept") updates.subConcept = "";
   state.set(updates);
@@ -296,9 +335,6 @@ function toggleSubConcept() {
 }
 function toggleVersion() {
   toggleDropdown("version");
-}
-function toggleSpec() {
-  toggleDropdown("spec");
 }
 
 // Stable menu click handlers — use event delegation via data-value JS property
@@ -325,21 +361,32 @@ function handleSubConceptMenuClick(e) {
 function handleVersionMenuClick(e) {
   onMenuClick("version", e);
 }
-function handleSpecMenuClick(e) {
-  onMenuClick("spec", e);
-}
 
 // Text input
 function handleIdentifierInput(e) {
   state.set({ ...state.get(), identifier: e.target.value });
 }
 
-// Copy — reads fresh from state, no stale closure
-function handleCopy() {
-  const result = buildName(state.get());
-  if (result.status === "success") {
-    navigator.clipboard.writeText(result.name);
-    showToast("광고 소재 파일명이 복사되었습니다.");
+// Searchable dropdown filter inputs
+function handleProductFilterInput(e) {
+  dropdownFilters.product = e.target.value;
+  rerender();
+}
+function handleConceptFilterInput(e) {
+  dropdownFilters.concept = e.target.value;
+  rerender();
+}
+function handleSubConceptFilterInput(e) {
+  dropdownFilters.subConcept = e.target.value;
+  rerender();
+}
+
+// Copy handlers — read name from element property so they never go stale
+function handleVariantCopy(e) {
+  const name = e.currentTarget["data-copy-text"];
+  if (name) {
+    navigator.clipboard.writeText(name);
+    showToast("파일명이 복사되었어요");
   }
 }
 
@@ -367,6 +414,7 @@ document.addEventListener("click", (e) => {
     !e.target.closest(".dropdown-container") &&
     state.get().openDropdown !== null
   ) {
+    clearFilter(state.get().openDropdown);
     state.set({ ...state.get(), openDropdown: null });
   }
 });
@@ -376,19 +424,12 @@ document.addEventListener("click", (e) => {
 // ============================================================
 
 function buildName(fields) {
-  const { format, product, concept, subConcept, identifier, version, spec } =
-    fields;
+  const { format, product, concept, subConcept, identifier, version } = fields;
   const hasSubCategory = CONCEPTS_WITH_SUBCONCEPT.has(concept);
 
   // State 1: Nothing filled
   const allEmpty =
-    !format &&
-    !product &&
-    !concept &&
-    !subConcept &&
-    !identifier &&
-    !version &&
-    !spec;
+    !format && !product && !concept && !subConcept && !identifier && !version;
   if (allEmpty) {
     return { status: "waiting", message: "설정값 입력을 대기중이에요..." };
   }
@@ -410,7 +451,6 @@ function buildName(fields) {
         { value: subConcept, label: "세부 콘셉" },
         { value: identifier, label: "소재 고유 식별자" },
         { value: version, label: "버전" },
-        { value: spec, label: "규격" },
       ]
     : [
         { value: format, label: "포맷" },
@@ -418,35 +458,69 @@ function buildName(fields) {
         { value: concept, label: "소재 컨셉" },
         { value: identifier, label: "소재 고유 식별자" },
         { value: version, label: "버전" },
-        { value: spec, label: "규격" },
       ];
 
   const missing = requiredFields.filter((f) => !f.value).map((f) => f.label);
   if (missing.length > 0) {
-    return {
-      status: "missing",
-      message: `다음 필수 항목이 누락되었어요:\n${missing.join(", ")}`,
-    };
+    return { status: "missing", missing };
   }
 
-  // State 4: Success
+  // State 4: Success — generate one variant per spec plus a no-spec variant
   const conceptPart = hasSubCategory ? `${concept}[${subConcept}]` : concept;
-  const name = [format, product, conceptPart, identifier, version, spec].join(
-    "_",
-  );
-  return { status: "success", name };
+  const base = [format, product, conceptPart, identifier, version].join("_");
+  const variants = [
+    { label: "공통", name: base },
+    ...SPEC_OPTIONS.map((spec) => ({ label: spec, name: `${base}_${spec}` })),
+  ];
+  return { status: "success", variants };
 }
 
 // ============================================================
 // COMPONENTS
 // ============================================================
 
+// Shared option renderer used by CustomDropdown (flat and grouped modes)
+function renderOption(opt, selectedValue, subOptions) {
+  return h(
+    "div",
+    {
+      className:
+        selectedValue === opt ? "dropdown-option selected" : "dropdown-option",
+      "data-value": opt,
+    },
+    h("span", { className: "option-label" }, opt),
+    subOptions && subOptions.has(opt)
+      ? h(
+          "span",
+          { className: "material-symbols-rounded option-sub-icon" },
+          "tune",
+        )
+      : null,
+    h("span", { className: "material-symbols-rounded check-icon" }, "check"),
+  );
+}
+
 // Custom dropdown — always renders the menu in the DOM, toggles visibility via CSS class.
 // Options use event delegation (onMenuClick on the menu div) so we never get stale
 // per-option click handlers when the option list changes (e.g. 인플루언서 → 기능).
 const CustomDropdown = (props) => {
-  const { fieldName, value, options, onToggle, onMenuClick } = props;
+  const {
+    fieldName,
+    value,
+    options,
+    onToggle,
+    onMenuClick,
+    searchable,
+    onFilterInput,
+    subOptions,
+    groups,
+  } = props;
   const isOpen = state.get().openDropdown === fieldName;
+  const filterText = dropdownFilters[fieldName] || "";
+  const filteredOptions =
+    searchable && filterText
+      ? options.filter((opt) => opt.includes(filterText))
+      : options;
 
   return h(
     "div",
@@ -475,22 +549,42 @@ const CustomDropdown = (props) => {
         className: isOpen ? "dropdown-menu open" : "dropdown-menu",
         onClick: onMenuClick,
       },
-      ...options.map((opt) =>
-        h(
-          "div",
-          {
-            className:
-              value === opt ? "dropdown-option selected" : "dropdown-option",
-            "data-value": opt,
-          },
-          h("span", { className: "option-label" }, opt),
-          h(
-            "span",
-            { className: "material-symbols-rounded check-icon" },
-            "check",
-          ),
-        ),
-      ),
+      searchable
+        ? h(
+            "div",
+            { className: "dropdown-search" },
+            h(
+              "span",
+              { className: "material-symbols-rounded dropdown-search-icon" },
+              "search",
+            ),
+            h("input", {
+              className: "dropdown-search-input",
+              type: "text",
+              placeholder: "검색",
+              onInput: onFilterInput,
+            }),
+          )
+        : null,
+      ...(groups
+        ? groups.flatMap(({ label, items }) => {
+            const visibleItems = filterText
+              ? items.filter((opt) => opt.includes(filterText))
+              : items;
+            if (visibleItems.length === 0) return [];
+            return [
+              ...(label
+                ? [h("div", { className: "dropdown-group-label" }, label)]
+                : []),
+              ...visibleItems.map((opt) =>
+                renderOption(opt, value, subOptions),
+              ),
+            ];
+          })
+        : filteredOptions.map((opt) => renderOption(opt, value, subOptions))),
+      searchable && filterText && filteredOptions.length === 0
+        ? h("div", { className: "dropdown-no-results" }, "검색 결과가 없어요")
+        : null,
     ),
   );
 };
@@ -506,6 +600,10 @@ const DropdownField = (props) => {
     onToggle,
     onMenuClick,
     tooltip,
+    searchable,
+    onFilterInput,
+    subOptions,
+    groups,
   } = props;
   return h(
     "div",
@@ -517,7 +615,17 @@ const DropdownField = (props) => {
       label,
       h("span", { className: "field-tooltip" }, tooltip),
     ),
-    h(CustomDropdown, { fieldName, value, options, onToggle, onMenuClick }),
+    h(CustomDropdown, {
+      fieldName,
+      value,
+      options,
+      onToggle,
+      onMenuClick,
+      searchable,
+      onFilterInput,
+      subOptions,
+      groups,
+    }),
   );
 };
 
@@ -553,14 +661,54 @@ const OutputDisplay = (props) => {
     return h("div", { className: "output output--error" }, result.message);
   }
   if (result.status === "missing") {
-    return h("div", { className: "output output--missing" }, result.message);
+    return h(
+      "div",
+      { className: "output output--missing" },
+      h("div", { className: "output-missing-label" }, "다음 항목을 채워주세요"),
+      h(
+        "div",
+        { className: "output-missing-chips" },
+        ...result.missing.map((label) =>
+          h("span", { className: "output-missing-chip" }, label),
+        ),
+      ),
+    );
   }
 
   return h(
     "div",
     { className: "output output--success" },
-    h("div", { className: "output-name" }, result.name),
-    h("button", { className: "copy-btn", onClick: handleCopy }, "복사"),
+    h(
+      "div",
+      { className: "output-variants" },
+      ...result.variants.map(({ label, name }, i) =>
+        h(
+          "div",
+          {
+            className:
+              i === 0
+                ? "output-variant output-variant--base"
+                : "output-variant",
+          },
+          h("span", { className: "output-variant-label" }, label),
+          h("div", { className: "output-name" }, name),
+          h(
+            "button",
+            {
+              className: "copy-btn",
+              onClick: handleVariantCopy,
+              "data-copy-text": name,
+              title: "복사",
+            },
+            h(
+              "span",
+              { className: "material-symbols-rounded" },
+              "content_copy",
+            ),
+          ),
+        ),
+      ),
+    ),
   );
 };
 
@@ -573,6 +721,7 @@ function App() {
       : s.concept === "기능"
         ? FUNCTION_OPTIONS
         : [];
+  const subConceptGroups = s.concept === "기능" ? FUNCTION_GROUPS : null;
   const result = buildName(s);
 
   return h(
@@ -612,10 +761,13 @@ function App() {
             icon: "inventory_2",
             fieldName: "product",
             value: s.product,
-            options: PRODUCT_OPTIONS,
+            options: PRODUCT.flat,
+            groups: PRODUCT.groups,
             onToggle: toggleProduct,
             onMenuClick: handleProductMenuClick,
             tooltip: "이 소재가 홍보하는 제품을 선택하는 항목",
+            searchable: true,
+            onFilterInput: handleProductFilterInput,
           }),
           h(DropdownField, {
             label: "소재 컨셉",
@@ -626,6 +778,10 @@ function App() {
             onToggle: toggleConcept,
             onMenuClick: handleConceptMenuClick,
             tooltip: "소재의 핵심 콘셉트를 선택하는 항목",
+            searchable: true,
+            onFilterInput: handleConceptFilterInput,
+            subOptions: CONCEPTS_WITH_SUBCONCEPT,
+            groups: CONCEPT_GROUPS,
           }),
           h(
             "div",
@@ -643,6 +799,9 @@ function App() {
               onToggle: toggleSubConcept,
               onMenuClick: handleSubConceptMenuClick,
               tooltip: "특정 콘셉트를 더 정밀하게 분류하기 위해 사용하는 항목",
+              searchable: true,
+              onFilterInput: handleSubConceptFilterInput,
+              groups: subConceptGroups,
             }),
           ),
           h(InputField, {
@@ -661,16 +820,6 @@ function App() {
             onToggle: toggleVersion,
             onMenuClick: handleVersionMenuClick,
             tooltip: "해당 소재의 버전을 입력하는 항목",
-          }),
-          h(DropdownField, {
-            label: "규격",
-            icon: "aspect_ratio",
-            fieldName: "spec",
-            value: s.spec,
-            options: SPEC_OPTIONS,
-            onToggle: toggleSpec,
-            onMenuClick: handleSpecMenuClick,
-            tooltip: "소재의 가로×세로 사이즈",
           }),
         ),
         h("div", { className: "divider" }),
@@ -703,6 +852,6 @@ function App() {
 // INIT
 // ============================================================
 
-const root = createRoot(document.body);
+root = createRoot(document.body);
 state.subscribe(() => root.render(App()));
 root.render(App());
