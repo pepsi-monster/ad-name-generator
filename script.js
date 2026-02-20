@@ -638,6 +638,12 @@ function saveIdentifierToHistory(value) {
   localStorage.setItem(IDENTIFIER_HISTORY_KEY, JSON.stringify(next));
 }
 
+function removeIdentifierFromHistory(value) {
+  const next = loadIdentifierHistory().filter((v) => v !== value);
+  localStorage.setItem(IDENTIFIER_HISTORY_KEY, JSON.stringify(next));
+  rerender();
+}
+
 // Identifier autocomplete state
 let identifierSuggestionsOpen = false;
 let identifierHighlight = -1;
@@ -661,9 +667,16 @@ function selectIdentifierSuggestion(value) {
 }
 
 function handleSuggestionMouseDown(e) {
+  e.preventDefault();
+  const removeBtn = e.target.closest(".suggestion-remove");
+  if (removeBtn) {
+    const item = removeBtn.closest(".suggestion-item");
+    const value = item && item.getAttribute("data-value");
+    if (value != null) removeIdentifierFromHistory(value);
+    return;
+  }
   const item = e.target.closest(".suggestion-item");
   if (!item) return;
-  e.preventDefault();
   const value = item.getAttribute("data-value");
   if (value != null) selectIdentifierSuggestion(value);
 }
@@ -703,12 +716,27 @@ function handleIdentifierKeyDown(e) {
   if (!suggestions.length) return;
   if (e.key === "ArrowDown") {
     e.preventDefault();
-    identifierHighlight = Math.min(identifierHighlight + 1, suggestions.length - 1);
+    identifierHighlight = Math.min(
+      identifierHighlight + 1,
+      suggestions.length - 1,
+    );
     rerender();
+    setTimeout(() => {
+      const highlighted = document.querySelector(
+        ".suggestions-menu .suggestion-item.highlighted",
+      );
+      if (highlighted) highlighted.scrollIntoView({ block: "nearest" });
+    }, 0);
   } else if (e.key === "ArrowUp") {
     e.preventDefault();
     identifierHighlight = Math.max(identifierHighlight - 1, -1);
     rerender();
+    setTimeout(() => {
+      const highlighted = document.querySelector(
+        ".suggestions-menu .suggestion-item.highlighted",
+      );
+      if (highlighted) highlighted.scrollIntoView({ block: "nearest" });
+    }, 0);
   } else if (e.key === "Enter" && identifierHighlight >= 0) {
     e.preventDefault();
     selectIdentifierSuggestion(suggestions[identifierHighlight]);
@@ -736,21 +764,39 @@ function handleSubConceptFilterInput(e) {
   rerender();
 }
 
+// Tracks the most recently copied name to show a checkmark on the copy button.
+let recentlyCopiedId = null;
+let recentlyCopiedTimer = null;
+
+function markCopied(id) {
+  if (recentlyCopiedTimer) clearTimeout(recentlyCopiedTimer);
+  recentlyCopiedId = id;
+  rerender();
+  recentlyCopiedTimer = setTimeout(() => {
+    recentlyCopiedId = null;
+    recentlyCopiedTimer = null;
+    rerender();
+  }, 1500);
+}
+
 // Copy handlers — read name from element property so they never go stale
 
 function handleVariantCopy(e) {
   const name = e.currentTarget.getAttribute("data-copy-text");
   const label = e.currentTarget.getAttribute("data-copy-label");
+  const index = e.currentTarget.getAttribute("data-copy-index");
   if (name) {
     navigator.clipboard.writeText(name);
     addToCopyHistory(label || "", name);
     showToast("복사되었어요", name);
+    markCopied("output-" + index);
   }
 }
 
 function handleCopyLink() {
   navigator.clipboard.writeText(location.href);
   showToast("공유용 링크가 복사되었어요");
+  markCopied("link");
 }
 
 function handleCopyAll() {
@@ -769,9 +815,11 @@ function handleToggleShortcuts(e) {
 
 function handleHistoryItemCopy(e) {
   const name = e.currentTarget.getAttribute("data-copy-text");
+  const index = e.currentTarget.getAttribute("data-copy-index");
   if (name) {
     navigator.clipboard.writeText(name);
     showToast("복사되었어요", name);
+    markCopied("history-" + index);
   }
 }
 
@@ -885,7 +933,8 @@ document.addEventListener("keydown", (e) => {
     const variant = currentVariants[idx - 1];
     navigator.clipboard.writeText(variant.name);
     addToCopyHistory(variant.label, variant.name);
-    showToast("복사됨", variant.name);
+    showToast("복사되었어요", variant.name);
+    markCopied("output-" + (idx - 1));
   }
 });
 
@@ -1034,6 +1083,13 @@ const CustomDropdown = (props) => {
         { className: value ? "dropdown-value" : "dropdown-value placeholder" },
         value || "선택",
       ),
+      subOptions && value && subOptions.has(value)
+        ? h(
+            "span",
+            { className: "material-symbols-rounded trigger-sub-icon" },
+            "tune",
+          )
+        : null,
       h(
         "span",
         {
@@ -1236,7 +1292,21 @@ const InputField = (props) => {
                       : "suggestion-item",
                   "data-value": s,
                 },
-                s,
+                h("span", { className: "suggestion-text" }, s),
+                h(
+                  "button",
+                  {
+                    className: "suggestion-remove",
+                    type: "button",
+                    tabIndex: -1,
+                    title: "기록에서 삭제",
+                  },
+                  h(
+                    "span",
+                    { className: "material-symbols-rounded" },
+                    "close",
+                  ),
+                ),
               ),
             ),
           )
@@ -1294,12 +1364,13 @@ const OutputDisplay = (props) => {
               onClick: handleVariantCopy,
               "data-copy-text": name,
               "data-copy-label": label,
+              "data-copy-index": i,
               title: "복사",
             },
             h(
               "span",
               { className: "material-symbols-rounded" },
-              "content_copy",
+              recentlyCopiedId === "output-" + i ? "check" : "content_copy",
             ),
           ),
         ),
@@ -1375,7 +1446,11 @@ const ShareSection = () =>
           type: "button",
           title: "링크 복사",
         },
-        h("span", { className: "material-symbols-rounded" }, "content_copy"),
+        h(
+          "span",
+          { className: "material-symbols-rounded" },
+          recentlyCopiedId === "link" ? "check" : "content_copy",
+        ),
       ),
     ),
   );
@@ -1410,7 +1485,7 @@ const CopyHistoryCard = (props) => {
     h(
       "div",
       { className: "history-list" },
-      ...history.map(({ label, name }) =>
+      ...history.map(({ label, name }, i) =>
         h(
           "div",
           { className: "history-item" },
@@ -1422,12 +1497,13 @@ const CopyHistoryCard = (props) => {
               className: "copy-btn",
               onClick: handleHistoryItemCopy,
               "data-copy-text": name,
+              "data-copy-index": i,
               title: "복사",
             },
             h(
               "span",
               { className: "material-symbols-rounded" },
-              "content_copy",
+              recentlyCopiedId === "history-" + i ? "check" : "content_copy",
             ),
           ),
         ),
@@ -1479,7 +1555,7 @@ function App() {
           h(
             "p",
             { className: "app-subtitle" },
-            "몇 가지 선택만으로 광고 소재명을 만들어드려요",
+            "몇 가지 선택만으로 광고 소재명을 빠르게 만들어드려요",
           ),
         ),
 
@@ -1620,7 +1696,7 @@ function App() {
           innerHTML:
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>',
         }),
-        "View on GitHub",
+        "GitHub에서 보기",
       ),
     ),
   );
