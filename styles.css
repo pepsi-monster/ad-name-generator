@@ -69,9 +69,6 @@ body {
 
 /* Header */
 .app-header {
-  margin-bottom: 0.5rem; /* Reduced from 1.5rem since it's inside the card now */
-  padding-bottom: 1.25rem;
-  border-bottom: 1px solid var(--border); /* Adds a sleek divider line */
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
@@ -94,7 +91,34 @@ body {
 .app-subtitle {
   font-size: 0.875rem;
   color: var(--text-muted);
-  margin-top: 0.3rem;
+}
+
+.reset-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.reset-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  line-height: inherit;
+  color: var(--text-muted);
+  transition: color 0.15s;
+}
+
+.reset-btn:hover {
+  color: var(--text);
+}
+
+.reset-btn .material-symbols-rounded {
+  font-size: 0.9375rem;
 }
 
 /* Card */
@@ -119,15 +143,6 @@ body {
     0 2px 8px rgba(0, 0, 0, 0.25);
 }
 
-.card-title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: -0.25rem; /* Pulls the fields slightly closer to the title */
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
 
 /* ── Copy history card ───────────────────────── */
 
@@ -733,7 +748,6 @@ body {
   color: var(--text-muted);
   border: 1px dashed var(--border);
   text-align: center;
-  padding: 1.25rem 1rem;
 }
 
 .output--error {
@@ -999,6 +1013,8 @@ body {
 
 .footer-shortcuts-wrapper {
   position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .footer-shortcuts-btn {
@@ -1007,11 +1023,20 @@ body {
   padding: 0;
   cursor: pointer;
   text-decoration: none;
-  font: inherit;
+  font-family: inherit;
+  line-height: inherit;
 }
 
 .footer-shortcuts-btn .material-symbols-rounded {
   font-size: 0.9375rem;
+}
+
+.footer-shortcuts-btn.pinned {
+  color: var(--blue);
+}
+
+.footer-shortcuts-btn.pinned .material-symbols-rounded {
+  font-variation-settings: "FILL" 1;
 }
 
 .shortcuts-panel {

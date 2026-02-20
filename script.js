@@ -228,118 +228,136 @@ function labelMatchesFilter(label, filterText) {
 }
 
 // ============================================================
-// DATA
+// DATA — only edit this section to add/change options
 // ============================================================
 
-const FORMAT_OPTIONS = ["비디오", "이미지", "캐러셀"];
+const DATA = {
+  format: ["비디오", "이미지", "캐러셀"],
 
-const PRODUCT_OPTIONS = [
-  "ALL",
-  { label: "Refa", items: ["M1", "파인버블", "브러시", "카사업"] },
-  { label: "Like Eat", items: ["쓸림쏙", "파인셔스"] },
-];
+  // Plain strings = ungrouped. { label, items } = grouped. Mix is allowed.
+  product: [
+    "ALL",
+    { label: "Refa", items: ["M1", "파인버블", "브러시", "카사업"] },
+    { label: "Like Eat", items: ["쓸림쏙", "파인셔스"] },
+  ],
+
+  concept: {
+    // Same format as product: plain strings or { label, items } groups.
+    options: [
+      { label: "인물/공감", items: ["인물", "인플루언서", "일반인", "공감형"] },
+      {
+        label: "정보/설득",
+        items: ["기능", "정보", "리뷰", "문제해결", "비교"],
+      },
+      { label: "감성/퍼포먼스", items: ["감성", "대세감", "할인"] },
+    ],
+    // To add a concept with sub-concepts: add an entry here.
+    // Value uses the same format (plain strings or { label, items } groups).
+    subConcepts: {
+      인플루언서: [
+        {
+          label: "규모",
+          items: ["나노", "마이크로", "미드티어", "매크로", "준메가", "메가"],
+        },
+      ],
+      기능: [
+        {
+          label: "피부 효능",
+          items: [
+            "보습",
+            "진정",
+            "미백",
+            "탄력",
+            "커버",
+            "지속력",
+            "각질",
+            "광채",
+          ],
+        },
+        {
+          label: "사용감",
+          items: ["흡수력", "끈적임없음", "발림성", "향", "무향", "제형"],
+        },
+        {
+          label: "편의/포장",
+          items: [
+            "휴대성",
+            "올인원",
+            "대용량",
+            "펌프형",
+            "이지워시",
+            "퀵",
+            "하루한알",
+            "2in1",
+            "클렌징",
+          ],
+        },
+        {
+          label: "성분/안전",
+          items: ["순함", "비건", "성분", "유기농", "고함량", "탈모"],
+        },
+        { label: "가격/혜택", items: ["가성비", "사은품", "한정판"] },
+        {
+          label: "건강기능식품",
+          items: [
+            "활력",
+            "면역",
+            "수면",
+            "기억력",
+            "혈행",
+            "눈건강",
+            "관절",
+            "간건강",
+            "체지방",
+            "쾌변",
+            "붓기",
+            "소화",
+            "목넘김",
+            "맛",
+          ],
+        },
+      ],
+    },
+  },
+
+  version: ["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10"],
+};
+
+// ============================================================
+// DERIVED — do not edit below
+// ============================================================
 
 // Parses a mixed definition (plain strings + {label, items} objects) into
-// a flat options array for filtering and a groups array for rendering.
-// Standalone strings become a null-label group (rendered without a header).
+// { flat, groups }. groups is null when there are no grouped items.
 function parseMixedOptions(def) {
   const standalone = def.filter((x) => typeof x === "string");
   const grouped = def.filter((x) => typeof x !== "string");
   const flat = [...standalone, ...grouped.flatMap((g) => g.items)];
-  const groups = [
-    ...(standalone.length ? [{ label: null, items: standalone }] : []),
-    ...grouped,
-  ];
+  const groups =
+    grouped.length === 0
+      ? null
+      : [
+          ...(standalone.length ? [{ label: null, items: standalone }] : []),
+          ...grouped,
+        ];
   return { flat, groups };
 }
 
-const PRODUCT = parseMixedOptions(PRODUCT_OPTIONS);
-
-const CONCEPT_GROUPS = [
-  { label: "인물/공감", items: ["인물", "인플루언서", "일반인", "공감형"] },
-  { label: "정보/설득", items: ["기능", "정보", "리뷰", "문제해결", "비교"] },
-  { label: "감성/퍼포먼스", items: ["감성", "대세감", "할인"] },
-];
-const CONCEPT_OPTIONS = CONCEPT_GROUPS.flatMap((g) => g.items);
-
-const INFLUENCER_OPTIONS = [
-  "나노",
-  "마이크로",
-  "미드티어",
-  "매크로",
-  "준메가",
-  "메가",
-];
-
-const FUNCTION_GROUPS = [
-  {
-    label: "피부 효능",
-    items: ["보습", "진정", "미백", "탄력", "커버", "지속력", "각질", "광채"],
-  },
-  {
-    label: "사용감",
-    items: ["흡수력", "끈적임없음", "발림성", "향", "무향", "제형"],
-  },
-  {
-    label: "편의/포장",
-    items: [
-      "휴대성",
-      "올인원",
-      "대용량",
-      "펌프형",
-      "이지워시",
-      "퀵",
-      "하루한알",
-      "2in1",
-      "클렌징",
-    ],
-  },
-  {
-    label: "성분/안전",
-    items: ["순함", "비건", "성분", "유기농", "고함량", "탈모"],
-  },
-  {
-    label: "가격/혜택",
-    items: ["가성비", "사은품", "한정판"],
-  },
-  {
-    label: "건강기능식품",
-    items: [
-      "활력",
-      "면역",
-      "수면",
-      "기억력",
-      "혈행",
-      "눈건강",
-      "관절",
-      "간건강",
-      "체지방",
-      "쾌변",
-      "붓기",
-      "소화",
-      "목넘김",
-      "맛",
-    ],
-  },
-];
-const FUNCTION_OPTIONS = FUNCTION_GROUPS.flatMap((g) => g.items);
-
-const VERSION_OPTIONS = [
-  "v1",
-  "v2",
-  "v3",
-  "v4",
-  "v5",
-  "v6",
-  "v7",
-  "v8",
-  "v9",
-  "v10",
-];
+const FORMAT_OPTIONS = DATA.format;
+const PRODUCT = parseMixedOptions(DATA.product);
+const CONCEPT = parseMixedOptions(DATA.concept.options);
+const CONCEPT_GROUPS = CONCEPT.groups;
+const CONCEPT_OPTIONS = CONCEPT.flat;
+const SUB_CONCEPT_MAP = Object.fromEntries(
+  Object.entries(DATA.concept.subConcepts).map(([name, def]) => {
+    const { flat, groups } = parseMixedOptions(def);
+    return [name, { options: flat, groups }];
+  }),
+);
+const CONCEPTS_WITH_SUBCONCEPT = new Set(Object.keys(SUB_CONCEPT_MAP));
+const VERSION_OPTIONS = DATA.version;
 
 const SPEC_OPTIONS = ["1x1", "4x5", "9x16", "16x9"];
-
-const CONCEPTS_WITH_SUBCONCEPT = new Set(["인플루언서", "기능"]);
 
 // ============================================================
 // STATE
@@ -458,7 +476,7 @@ function getGroupsForField(fieldName) {
     case "concept":
       return CONCEPT_GROUPS;
     case "subConcept":
-      return s.concept === "기능" ? FUNCTION_GROUPS : null;
+      return SUB_CONCEPT_MAP[s.concept]?.groups ?? null;
     default:
       return null;
   }
@@ -481,12 +499,7 @@ function getVisibleOptionsForField(fieldName) {
       options = CONCEPT_OPTIONS;
       break;
     case "subConcept":
-      options =
-        s.concept === "인플루언서"
-          ? INFLUENCER_OPTIONS
-          : s.concept === "기능"
-            ? FUNCTION_OPTIONS
-            : [];
+      options = SUB_CONCEPT_MAP[s.concept]?.options ?? [];
       break;
     case "version":
       options = VERSION_OPTIONS;
@@ -531,6 +544,27 @@ function toggleDropdown(fieldName) {
   }
 }
 
+// Returns the next empty field after fieldName in the fill sequence, or null.
+function getNextEmptyField(fieldName, newState) {
+  const sequence = [
+    "format",
+    "product",
+    "concept",
+    "subConcept",
+    "identifier",
+    "version",
+  ];
+  const hasSubConcept = CONCEPTS_WITH_SUBCONCEPT.has(newState.concept);
+  const applicable = sequence.filter(
+    (f) => f !== "subConcept" || hasSubConcept,
+  );
+  const currentIdx = applicable.indexOf(fieldName);
+  for (let i = currentIdx + 1; i < applicable.length; i++) {
+    if (!newState[applicable[i]]) return applicable[i];
+  }
+  return null;
+}
+
 // Select an option and close the dropdown.
 // Uses event delegation: the handler reads data-value from the clicked option element,
 // so the closure never goes stale even when option lists change.
@@ -539,7 +573,24 @@ function selectOption(fieldName, value) {
   clearFilter(fieldName);
   const updates = { ...state.get(), [fieldName]: value, openDropdown: null };
   if (fieldName === "concept") updates.subConcept = "";
+
+  // Auto-advance to the next empty field (skip when clearing a field).
+  const next = value !== "" ? getNextEmptyField(fieldName, updates) : null;
+  if (next && next !== "identifier") {
+    updates.openDropdown = next;
+    delete dropdownHighlight[next];
+  }
+
   state.set(updates);
+
+  if (next === "identifier") {
+    setTimeout(() => document.querySelector(".field-input")?.focus(), 0);
+  } else if (next) {
+    setTimeout(() => {
+      const openMenu = document.querySelector(".dropdown-menu.open");
+      if (openMenu) openMenu.querySelector(".dropdown-search-input")?.focus();
+    }, 0);
+  }
 }
 
 // Stable toggle handlers — one per field (same reference across renders)
@@ -579,6 +630,21 @@ function handleClearSubConcept(e) {
 function handleClearVersion(e) {
   e.stopPropagation();
   selectOption("version", "");
+}
+function handleResetAll() {
+  pushUndoSnapshot();
+  Object.keys(dropdownFilters).forEach((k) => delete dropdownFilters[k]);
+  Object.keys(dropdownHighlight).forEach((k) => delete dropdownHighlight[k]);
+  state.set({
+    ...state.get(),
+    format: "",
+    product: "",
+    concept: "",
+    subConcept: "",
+    identifier: "",
+    version: "",
+    openDropdown: null,
+  });
 }
 
 // Backspace/Delete on a focused trigger button (Tab navigation mode) clears the field
@@ -806,10 +872,19 @@ function handleCopyAll() {
 }
 
 let shortcutsOpen = false;
+let shortcutsHovered = false;
 
 function handleToggleShortcuts(e) {
   e.stopPropagation();
-  shortcutsOpen = !shortcutsOpen;
+  shortcutsOpen = true;
+  rerender();
+}
+function handleShortcutsMouseEnter() {
+  shortcutsHovered = true;
+  rerender();
+}
+function handleShortcutsMouseLeave() {
+  shortcutsHovered = false;
   rerender();
 }
 
@@ -950,7 +1025,10 @@ function buildName(fields) {
   const allEmpty =
     !format && !product && !concept && !subConcept && !identifier && !version;
   if (allEmpty) {
-    return { status: "waiting", message: "설정값 입력을 대기중이에요..." };
+    return {
+      status: "waiting",
+      message: "소재명이 여기에 나타나요. 항목을 채워보세요!",
+    };
   }
 
   // State 2: Sub-concept conflict
@@ -1317,9 +1395,6 @@ const OutputDisplay = (props) => {
   if (result.status === "waiting") {
     return h("div", { className: "output output--waiting" }, result.message);
   }
-  if (result.status === "error") {
-    return h("div", { className: "output output--error" }, result.message);
-  }
   if (result.status === "missing") {
     return h(
       "div",
@@ -1333,6 +1408,9 @@ const OutputDisplay = (props) => {
         ),
       ),
     );
+  }
+  if (result.status === "error") {
+    return h("div", { className: "output output--error" }, result.message);
   }
 
   return h(
@@ -1511,15 +1589,18 @@ const CopyHistoryCard = (props) => {
 function App() {
   const s = state.get();
   const hasSubConcept = CONCEPTS_WITH_SUBCONCEPT.has(s.concept);
-  const subConceptOptions =
-    s.concept === "인플루언서"
-      ? INFLUENCER_OPTIONS
-      : s.concept === "기능"
-        ? FUNCTION_OPTIONS
-        : [];
-  const subConceptGroups = s.concept === "기능" ? FUNCTION_GROUPS : null;
+  const subConceptEntry = SUB_CONCEPT_MAP[s.concept];
+  const subConceptOptions = subConceptEntry?.options ?? [];
+  const subConceptGroups = subConceptEntry?.groups ?? null;
   const result = buildName(s);
   currentVariants = result.status === "success" ? result.variants : [];
+  const anyFilled = !!(
+    s.format ||
+    s.product ||
+    s.concept ||
+    s.identifier ||
+    s.version
+  );
 
   // Calculate activeDescendantId for the currently open dropdown
   let activeDescendantId = undefined;
@@ -1554,6 +1635,7 @@ function App() {
             "몇 가지 선택만으로 광고 소재명을 빠르게 만들어드려요",
           ),
         ),
+        h("div", { className: "divider" }),
 
         h(
           "div",
@@ -1649,6 +1731,27 @@ function App() {
             tooltip: "해당 소재의 버전을 입력하는 항목",
           }),
         ),
+        anyFilled
+          ? h(
+              "div",
+              { className: "reset-row" },
+              h(
+                "button",
+                {
+                  className: "reset-btn",
+                  onClick: handleResetAll,
+                  type: "button",
+                  tabIndex: -1,
+                },
+                h(
+                  "span",
+                  { className: "material-symbols-rounded" },
+                  "restart_alt",
+                ),
+                "초기화",
+              ),
+            )
+          : null,
         h("div", { className: "divider" }),
         result.status === "success" ? h(ShareSection, {}) : null,
         h(OutputDisplay, { result }),
@@ -1662,12 +1765,16 @@ function App() {
       { className: "app-footer" },
       h(
         "div",
-        { className: "footer-shortcuts-wrapper" },
-        shortcutsOpen ? h(ShortcutsPanel, {}) : null,
+        {
+          className: "footer-shortcuts-wrapper",
+          onMouseEnter: handleShortcutsMouseEnter,
+          onMouseLeave: handleShortcutsMouseLeave,
+        },
+        shortcutsOpen || shortcutsHovered ? h(ShortcutsPanel, {}) : null,
         h(
           "button",
           {
-            className: "footer-link footer-shortcuts-btn",
+            className: `footer-link footer-shortcuts-btn${shortcutsOpen ? " pinned" : ""}`,
             onClick: handleToggleShortcuts,
             type: "button",
           },
