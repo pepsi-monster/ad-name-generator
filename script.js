@@ -390,7 +390,7 @@ function buildName(fields) {
     !version &&
     !spec;
   if (allEmpty) {
-    return { status: "waiting", message: "설정값 입력을 대기중입니다..." };
+    return { status: "waiting", message: "설정값 입력을 대기중이에요..." };
   }
 
   // State 2: Sub-concept conflict
@@ -425,7 +425,7 @@ function buildName(fields) {
   if (missing.length > 0) {
     return {
       status: "missing",
-      message: `다음 필수 항목이 누락되었습니다:\n${missing.join(", ")}`,
+      message: `다음 필수 항목이 누락되었어요:\n${missing.join(", ")}`,
     };
   }
 
@@ -581,11 +581,11 @@ function App() {
     h(
       "header",
       { className: "app-header" },
-      h("h1", { className: "app-title" }, "소재명 생성기"),
+      h("h1", { className: "app-title" }, "APPSILON 소재명 생성기"),
       h(
         "p",
         { className: "app-subtitle" },
-        "광고 소재 파일명을 자동으로 조합합니다",
+        "몇 가지 선택만으로 소재명을 만들어드려요",
       ),
     ),
     h(
@@ -605,7 +605,7 @@ function App() {
             options: FORMAT_OPTIONS,
             onToggle: toggleFormat,
             onMenuClick: handleFormatMenuClick,
-            tooltip: "소재의 유형 — 비디오 또는 이미지",
+            tooltip: "소재 파일의 형식을 구분하는 항목",
           }),
           h(DropdownField, {
             label: "제품",
@@ -615,7 +615,7 @@ function App() {
             options: PRODUCT_OPTIONS,
             onToggle: toggleProduct,
             onMenuClick: handleProductMenuClick,
-            tooltip: "광고할 제품명",
+            tooltip: "이 소재가 홍보하는 제품을 선택하는 항목",
           }),
           h(DropdownField, {
             label: "소재 컨셉",
@@ -625,7 +625,7 @@ function App() {
             options: CONCEPT_OPTIONS,
             onToggle: toggleConcept,
             onMenuClick: handleConceptMenuClick,
-            tooltip: "소재의 크리에이티브 방향",
+            tooltip: "소재의 핵심 콘셉트를 선택하는 항목",
           }),
           h(
             "div",
@@ -642,7 +642,7 @@ function App() {
               options: subConceptOptions,
               onToggle: toggleSubConcept,
               onMenuClick: handleSubConceptMenuClick,
-              tooltip: "인플루언서 규모 또는 기능 키워드",
+              tooltip: "특정 콘셉트를 더 정밀하게 분류하기 위해 사용하는 항목",
             }),
           ),
           h(InputField, {
@@ -650,7 +650,7 @@ function App() {
             icon: "badge",
             onInput: handleIdentifierInput,
             placeholder: "예: 바이럴, 완전커버",
-            tooltip: "소재를 구분하는 고유 이름이나 키워드",
+            tooltip: "팀 내 빠른 소통을 위해 붙이는 소재의 짧은 별명",
           }),
           h(DropdownField, {
             label: "버전",
@@ -660,7 +660,7 @@ function App() {
             options: VERSION_OPTIONS,
             onToggle: toggleVersion,
             onMenuClick: handleVersionMenuClick,
-            tooltip: "동일 소재의 반복 제작 순번",
+            tooltip: "해당 소재의 버전을 입력하는 항목",
           }),
           h(DropdownField, {
             label: "규격",
@@ -670,7 +670,7 @@ function App() {
             options: SPEC_OPTIONS,
             onToggle: toggleSpec,
             onMenuClick: handleSpecMenuClick,
-            tooltip: "광고 노출 화면 비율",
+            tooltip: "소재의 가로×세로 사이즈",
           }),
         ),
         h("div", { className: "divider" }),
