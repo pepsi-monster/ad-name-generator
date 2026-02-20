@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "mcp__ide__getDiagnostics",
+      "Bash(git -C /Users/johnny/repos/ad-name-generator status)",
+      "Bash(git -C /Users/johnny/repos/ad-name-generator diff --stat)",
+      "Bash(git -C /Users/johnny/repos/ad-name-generator log --oneline -3)",
+      "Bash(git -C /Users/johnny/repos/ad-name-generator add script.js styles.css)",
+      "Bash(git -C:*)"
+    ]
+  }
+}

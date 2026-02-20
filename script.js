@@ -1301,11 +1301,7 @@ const InputField = (props) => {
                     tabIndex: -1,
                     title: "기록에서 삭제",
                   },
-                  h(
-                    "span",
-                    { className: "material-symbols-rounded" },
-                    "close",
-                  ),
+                  h("span", { className: "material-symbols-rounded" }, "close"),
                 ),
               ),
             ),
@@ -1468,7 +1464,7 @@ const CopyHistoryCard = (props) => {
         { className: "material-symbols-rounded history-icon" },
         "history",
       ),
-      "최근 복사",
+      "최근 복사 내역",
       h(
         "button",
         {
@@ -1479,7 +1475,7 @@ const CopyHistoryCard = (props) => {
           title: "기록 지우기",
         },
         h("span", { className: "material-symbols-rounded" }, "delete_sweep"),
-        "지우기",
+        "모두 지우기",
       ),
     ),
     h(
