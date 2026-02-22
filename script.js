@@ -1161,13 +1161,16 @@ const CustomDropdown = (props) => {
         { className: value ? "dropdown-value" : "dropdown-value placeholder" },
         value || "선택",
       ),
-      subOptions && value && subOptions.has(value)
-        ? h(
-            "span",
-            { className: "material-symbols-rounded trigger-sub-icon" },
-            "tune",
-          )
-        : null,
+      h(
+        "span",
+        {
+          className:
+            subOptions && value && subOptions.has(value)
+              ? "material-symbols-rounded trigger-sub-icon"
+              : "material-symbols-rounded trigger-sub-icon trigger-sub-icon--hidden",
+        },
+        "tune",
+      ),
       h(
         "span",
         {
