@@ -372,11 +372,13 @@ const URL_FIELDS = [
   "version",
 ];
 
+const FIELD_DEFAULTS = { version: "v1" };
+
 function stateFromURL() {
   const p = new URLSearchParams(location.search);
   const s = { openDropdown: null };
   URL_FIELDS.forEach((k) => {
-    s[k] = p.get(k) || "";
+    s[k] = p.get(k) || FIELD_DEFAULTS[k] || "";
   });
   return s;
 }
@@ -501,9 +503,6 @@ function getVisibleOptionsForField(fieldName) {
     case "subConcept":
       options = SUB_CONCEPT_MAP[s.concept]?.options ?? [];
       break;
-    case "version":
-      options = VERSION_OPTIONS;
-      break;
     default:
       return [];
   }
@@ -606,8 +605,18 @@ function toggleConcept() {
 function toggleSubConcept() {
   toggleDropdown("subConcept");
 }
-function toggleVersion() {
-  toggleDropdown("version");
+function handleVersionDecrement() {
+  const idx = VERSION_OPTIONS.indexOf(state.get().version);
+  if (idx <= 0) return;
+  pushUndoSnapshot();
+  state.set({ ...state.get(), version: VERSION_OPTIONS[idx - 1] });
+}
+
+function handleVersionIncrement() {
+  const idx = VERSION_OPTIONS.indexOf(state.get().version);
+  if (idx >= VERSION_OPTIONS.length - 1) return;
+  pushUndoSnapshot();
+  state.set({ ...state.get(), version: VERSION_OPTIONS[idx + 1] });
 }
 
 // Stable clear handlers — stop propagation so the trigger doesn't also open
@@ -627,10 +636,6 @@ function handleClearSubConcept(e) {
   e.stopPropagation();
   selectOption("subConcept", "");
 }
-function handleClearVersion(e) {
-  e.stopPropagation();
-  selectOption("version", "");
-}
 function handleResetAll() {
   pushUndoSnapshot();
   Object.keys(dropdownFilters).forEach((k) => delete dropdownFilters[k]);
@@ -642,7 +647,7 @@ function handleResetAll() {
     concept: "",
     subConcept: "",
     identifier: "",
-    version: "",
+    version: "v1",
     openDropdown: null,
   });
 }
@@ -677,9 +682,6 @@ function handleConceptMenuClick(e) {
 }
 function handleSubConceptMenuClick(e) {
   onMenuClick("subConcept", e);
-}
-function handleVersionMenuClick(e) {
-  onMenuClick("version", e);
 }
 
 // Identifier history — persists across sessions via localStorage
@@ -1023,7 +1025,7 @@ function buildName(fields) {
 
   // State 1: Nothing filled
   const allEmpty =
-    !format && !product && !concept && !subConcept && !identifier && !version;
+    !format && !product && !concept && !subConcept && !identifier;
   if (allEmpty) {
     return {
       status: "waiting",
@@ -1047,14 +1049,12 @@ function buildName(fields) {
         { value: concept, label: "소재 컨셉" },
         { value: subConcept, label: "세부 콘셉" },
         { value: identifier, label: "소재 고유 식별자" },
-        { value: version, label: "버전" },
       ]
     : [
         { value: format, label: "포맷" },
         { value: product, label: "제품" },
         { value: concept, label: "소재 컨셉" },
         { value: identifier, label: "소재 고유 식별자" },
-        { value: version, label: "버전" },
       ];
 
   const missing = requiredFields.filter((f) => !f.value).map((f) => f.label);
@@ -1315,6 +1315,62 @@ const DropdownField = (props) => {
   );
 };
 
+// Stepper control for the version field (always v1+, never empty)
+const VersionStepper = ({ value, tooltip }) => {
+  const idx = VERSION_OPTIONS.indexOf(value);
+  const atMin = idx <= 0;
+  const atMax = idx >= VERSION_OPTIONS.length - 1;
+  return h(
+    "div",
+    { className: "field-row" },
+    h(
+      "label",
+      { className: "field-label" },
+      h(
+        "span",
+        { className: "material-symbols-rounded field-icon" },
+        "history",
+      ),
+      "버전",
+      h("span", { className: "field-tooltip" }, tooltip),
+    ),
+    h(
+      "div",
+      { className: "version-stepper" },
+      h("span", { className: "version-value" }, value),
+      h(
+        "div",
+        { className: "version-stepper-actions" },
+        h(
+          "button",
+          {
+            className: "version-btn",
+            onClick: handleVersionDecrement,
+            disabled: atMin,
+            type: "button",
+            tabIndex: -1,
+            "aria-label": "버전 낮추기",
+          },
+          h("span", { className: "material-symbols-rounded" }, "remove"),
+        ),
+        h("span", { className: "version-sep" }),
+        h(
+          "button",
+          {
+            className: "version-btn",
+            onClick: handleVersionIncrement,
+            disabled: atMax,
+            type: "button",
+            tabIndex: -1,
+            "aria-label": "버전 높이기",
+          },
+          h("span", { className: "material-symbols-rounded" }, "add"),
+        ),
+      ),
+    ),
+  );
+};
+
 // Labeled row wrapping the free text input
 const InputField = (props) => {
   const {
@@ -1422,12 +1478,7 @@ const OutputDisplay = (props) => {
       ...result.variants.map(({ label, name }, i) =>
         h(
           "div",
-          {
-            className:
-              i === 0
-                ? "output-variant output-variant--base"
-                : "output-variant",
-          },
+          { className: "output-variant" },
           h("span", { className: "output-variant-label" }, label),
           h("div", { className: "output-name" }, name),
           h("kbd", { className: "shortcut-hint" }, String(i + 1)),
@@ -1594,13 +1645,7 @@ function App() {
   const subConceptGroups = subConceptEntry?.groups ?? null;
   const result = buildName(s);
   currentVariants = result.status === "success" ? result.variants : [];
-  const anyFilled = !!(
-    s.format ||
-    s.product ||
-    s.concept ||
-    s.identifier ||
-    s.version
-  );
+  const anyFilled = !!(s.format || s.product || s.concept || s.identifier);
 
   // Calculate activeDescendantId for the currently open dropdown
   let activeDescendantId = undefined;
@@ -1719,15 +1764,8 @@ function App() {
               : [],
             highlightIdx: identifierHighlight,
           }),
-          h(DropdownField, {
-            label: "버전",
-            icon: "history",
-            fieldName: "version",
+          h(VersionStepper, {
             value: s.version,
-            options: VERSION_OPTIONS,
-            onToggle: toggleVersion,
-            onMenuClick: handleVersionMenuClick,
-            onClear: handleClearVersion,
             tooltip: "해당 소재의 버전을 입력하는 항목",
           }),
         ),
