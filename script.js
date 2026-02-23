@@ -244,12 +244,10 @@ const DATA = {
   concept: {
     // Same format as product: plain strings or { label, items } groups.
     options: [
-      { label: "인물/공감", items: ["인물", "인플루언서", "일반인", "공감형"] },
-      {
-        label: "정보/설득",
-        items: ["기능", "정보", "리뷰", "문제해결", "비교"],
-      },
-      { label: "감성/퍼포먼스", items: ["감성", "대세감", "할인"] },
+      { label: "인물/공감", items: ["인물", "인플루언서", "셀럽", "일반인", "공감형"] },
+      { label: "정보/설득", items: ["기능", "정보", "리뷰", "문제해결", "비교", "수상인증"] },
+      { label: "감성/라이프", items: ["감성", "라이프스타일"] },
+      { label: "퍼포먼스", items: ["대세감", "할인", "신제품", "시즌", "이벤트"] },
     ],
     // To add a concept with sub-concepts: add an entry here.
     // Value uses the same format (plain strings or { label, items } groups).
@@ -260,19 +258,28 @@ const DATA = {
           items: ["나노", "마이크로", "미드티어", "매크로", "준메가", "메가"],
         },
       ],
+      셀럽: [
+        {
+          label: "분야",
+          items: ["배우", "가수", "유튜버", "방송인", "스포츠선수"],
+        },
+      ],
+      일반인: [
+        {
+          label: "타겟",
+          items: ["주부", "MZ", "시니어", "직장인", "학생"],
+        },
+      ],
+      공감형: [
+        {
+          label: "고민 유형",
+          items: ["피부고민", "건강고민", "다이어트", "생활불편", "감정공감"],
+        },
+      ],
       기능: [
         {
           label: "피부 효능",
-          items: [
-            "보습",
-            "진정",
-            "미백",
-            "탄력",
-            "커버",
-            "지속력",
-            "각질",
-            "광채",
-          ],
+          items: ["보습", "진정", "미백", "탄력", "커버", "지속력", "각질", "광채", "피지", "모공", "주름"],
         },
         {
           label: "사용감",
@@ -280,41 +287,88 @@ const DATA = {
         },
         {
           label: "편의/포장",
-          items: [
-            "휴대성",
-            "올인원",
-            "대용량",
-            "펌프형",
-            "이지워시",
-            "퀵",
-            "하루한알",
-            "2in1",
-            "클렌징",
-          ],
+          items: ["휴대성", "올인원", "대용량", "펌프형", "이지워시", "퀵", "하루한알", "2in1", "클렌징"],
         },
         {
           label: "성분/안전",
-          items: ["순함", "비건", "성분", "유기농", "고함량", "탈모"],
+          items: ["순함", "비건", "성분", "유기농", "고함량", "탈모", "EWG", "무첨가"],
         },
         { label: "가격/혜택", items: ["가성비", "사은품", "한정판"] },
         {
           label: "건강기능식품",
-          items: [
-            "활력",
-            "면역",
-            "수면",
-            "기억력",
-            "혈행",
-            "눈건강",
-            "관절",
-            "간건강",
-            "체지방",
-            "쾌변",
-            "붓기",
-            "소화",
-            "목넘김",
-            "맛",
-          ],
+          items: ["활력", "면역", "수면", "기억력", "혈행", "눈건강", "관절", "간건강", "체지방", "쾌변", "붓기", "소화", "목넘김", "맛"],
+        },
+      ],
+      정보: [
+        {
+          label: "정보 유형",
+          items: ["성분소개", "사용법", "작동원리", "수치데이터", "팁"],
+        },
+      ],
+      리뷰: [
+        {
+          label: "후기 유형",
+          items: ["영상후기", "텍스트후기", "재구매후기", "전문가추천", "별점"],
+        },
+      ],
+      비교: [
+        {
+          label: "비교 유형",
+          items: ["전후비교", "타제품비교", "성분비교", "사용전후"],
+        },
+      ],
+      문제해결: [
+        {
+          label: "문제 유형",
+          items: ["피부트러블", "건강문제", "다이어트", "생활불편", "피로스트레스"],
+        },
+      ],
+      수상인증: [
+        {
+          label: "종류",
+          items: ["국내수상", "해외수상", "인증마크", "언론보도"],
+        },
+      ],
+      감성: [
+        {
+          label: "무드",
+          items: ["계절감", "자연힐링", "일상감성", "청량", "포근", "고급스러움"],
+        },
+      ],
+      라이프스타일: [
+        {
+          label: "장면",
+          items: ["데일리루틴", "뷰티루틴", "건강루틴", "아웃도어", "홈라이프", "바쁜일상"],
+        },
+      ],
+      대세감: [
+        {
+          label: "증거 유형",
+          items: ["SNS화제", "입소문", "품절대란", "누적판매", "트렌드", "미디어노출"],
+        },
+      ],
+      할인: [
+        {
+          label: "혜택 유형",
+          items: ["할인율", "가격강조", "번들묶음", "쿠폰", "첫구매", "사은품"],
+        },
+      ],
+      신제품: [
+        {
+          label: "출시 유형",
+          items: ["신규론칭", "리뉴얼", "한정판", "재입고", "콜라보"],
+        },
+      ],
+      시즌: [
+        {
+          label: "계절",
+          items: ["봄", "여름", "가을", "겨울"],
+        },
+      ],
+      이벤트: [
+        {
+          label: "기념일",
+          items: ["명절", "발렌타인", "화이트데이", "어버이날", "빼빼로데이", "블랙프라이데이", "크리스마스"],
         },
       ],
     },
@@ -1048,13 +1102,13 @@ function buildName(fields) {
         { value: product, label: "제품" },
         { value: concept, label: "소재 컨셉" },
         { value: subConcept, label: "세부 콘셉" },
-        { value: identifier, label: "소재 고유 식별자" },
+        { value: identifier, label: "소재 별명" },
       ]
     : [
         { value: format, label: "포맷" },
         { value: product, label: "제품" },
         { value: concept, label: "소재 컨셉" },
-        { value: identifier, label: "소재 고유 식별자" },
+        { value: identifier, label: "소재 별명" },
       ];
 
   const missing = requiredFields.filter((f) => !f.value).map((f) => f.label);
@@ -1697,7 +1751,7 @@ function App() {
             onToggle: toggleFormat,
             onMenuClick: handleFormatMenuClick,
             onClear: handleClearFormat,
-            tooltip: "소재 파일의 형식을 구분하는 항목",
+            tooltip: "소재의 파일 유형을 선택해요",
             activeDescendantId:
               s.openDropdown === "format" ? activeDescendantId : undefined,
           }),
@@ -1711,7 +1765,7 @@ function App() {
             onToggle: toggleProduct,
             onMenuClick: handleProductMenuClick,
             onClear: handleClearProduct,
-            tooltip: "이 소재가 홍보하는 제품을 선택하는 항목",
+            tooltip: "소재가 실제로 노출하는 상품을 선택해요",
             searchable: true,
             onFilterInput: handleProductFilterInput,
           }),
@@ -1724,7 +1778,7 @@ function App() {
             onToggle: toggleConcept,
             onMenuClick: handleConceptMenuClick,
             onClear: handleClearConcept,
-            tooltip: "소재의 핵심 콘셉트를 선택하는 항목",
+            tooltip: "소재의 중심이 되는 콘셉을 선택해요",
             searchable: true,
             onFilterInput: handleConceptFilterInput,
             subOptions: CONCEPTS_WITH_SUBCONCEPT,
@@ -1746,14 +1800,14 @@ function App() {
               onToggle: toggleSubConcept,
               onMenuClick: handleSubConceptMenuClick,
               onClear: handleClearSubConcept,
-              tooltip: "특정 콘셉트를 더 정밀하게 분류하기 위해 사용하는 항목",
+              tooltip: "선택한 콘셉을 더 세부적으로 구분할 때 사용해요",
               searchable: true,
               onFilterInput: handleSubConceptFilterInput,
               groups: subConceptGroups,
             }),
           ),
           h(InputField, {
-            label: "소재 고유 식별자",
+            label: "소재 별명",
             icon: "badge",
             value: s.identifier,
             onInput: handleIdentifierInput,
@@ -1761,7 +1815,7 @@ function App() {
             onFocus: handleIdentifierFocus,
             onKeyDown: handleIdentifierKeyDown,
             placeholder: "예: 바이럴, 여름세일, 블프",
-            tooltip: "내부 소통을 위해 붙이는 소재의 짧은 별명",
+            tooltip: "내부 소통을 위해 붙이는 소재 별명이에요",
             suggestions: identifierSuggestionsOpen
               ? getIdentifierSuggestions()
               : [],
@@ -1769,7 +1823,7 @@ function App() {
           }),
           h(VersionStepper, {
             value: s.version,
-            tooltip: "해당 소재의 버전을 입력하는 항목",
+            tooltip: "같은 소재의 버전이에요 (기본값은 v1이에요)",
           }),
         ),
         anyFilled
@@ -1841,6 +1895,21 @@ function App() {
             '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 0C5.374 0 0 5.373 0 12c0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23A11.509 11.509 0 0 1 12 5.803c1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576C20.566 21.797 24 17.3 24 12c0-6.627-5.373-12-12-12z"/></svg>',
         }),
         "GitHub에서 보기",
+      ),
+      h(
+        "a",
+        {
+          className: "footer-link",
+          href: "http://appsilon.kr/",
+          target: "_blank",
+          rel: "noreferrer",
+        },
+        h("span", {
+          className: "footer-icon",
+          innerHTML:
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 295 311" width="13" height="14" fill="currentColor"><path d="M77.1465 15.1099L123.693 26.2176L55.8606 310.643L9.30591 299.54L77.1465 15.1099Z"/><path d="M281.688 156.179L294.532 202.284L16.6762 285.842L0 234.652L281.688 156.179Z"/><path d="M33.6174 33.8025L67.4788 8.0734e-07L274.067 206.937L240.205 240.739L33.6174 33.8025Z"/></svg>',
+        }),
+        "APPSILON Corp.",
       ),
     ),
   );
