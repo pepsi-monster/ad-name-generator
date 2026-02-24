@@ -1374,15 +1374,15 @@ function SubmitModal() {
     h(
       "div",
       { className: "modal-dialog" },
-      h("h2", { className: "modal-title" }, "변경 사항 적용"),
+      h("h2", { className: "modal-title" }, "변경 사항을 적용할까요?"),
       h(
         "p",
         { className: "modal-body" },
         submitting
-          ? "서버에 전송 중이에요..."
+          ? "서버에 제출 중이에요..."
           : submitError
             ? submitError
-            : "편집한 데이터를 적용할까요?",
+            : "수정한다고 고생하셨어요!",
       ),
       h(
         "div",
@@ -1405,7 +1405,7 @@ function SubmitModal() {
             "data-action": "confirm-submit",
             disabled: submitting,
           },
-          submitting ? "전송 중..." : "전송",
+          submitting ? "제출 중..." : "제출",
         ),
       ),
     ),
@@ -1462,7 +1462,7 @@ async function submitData() {
     document.getElementById("submit-btn").classList.remove("dirty");
     rerender();
   } catch (err) {
-    submitError = err.message || "전송에 실패했어요. 다시 시도해주세요.";
+    submitError = err.message || "제출에 실패했어요. 다시 시도해주세요.";
     submitting = false;
     rerender();
   }

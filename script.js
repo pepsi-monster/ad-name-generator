@@ -70,6 +70,36 @@ function labelMatchesFilter(label, filterText) {
 }
 
 // ============================================================
+// DATE HELPERS
+// ============================================================
+
+function todayYYMMDD() {
+  const d = new Date();
+  return (
+    String(d.getFullYear()).slice(2) +
+    String(d.getMonth() + 1).padStart(2, "0") +
+    String(d.getDate()).padStart(2, "0")
+  );
+}
+
+function toYYMMDD(date) {
+  return (
+    String(date.getFullYear()).slice(2) +
+    String(date.getMonth() + 1).padStart(2, "0") +
+    String(date.getDate()).padStart(2, "0")
+  );
+}
+
+function parseYYMMDD(str) {
+  if (!str || str.length !== 6) return null;
+  const year = 2000 + parseInt(str.slice(0, 2), 10);
+  const month = parseInt(str.slice(2, 4), 10) - 1;
+  const day = parseInt(str.slice(4, 6), 10);
+  const d = new Date(year, month, day);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+// ============================================================
 // DERIVED — do not edit below
 // ============================================================
 
@@ -83,14 +113,20 @@ function parseMixedOptions(def) {
     grouped.length === 0
       ? null
       : [
-        ...(standalone.length ? [{ label: null, items: standalone }] : []),
-        ...grouped,
-      ];
+          ...(standalone.length ? [{ label: null, items: standalone }] : []),
+          ...grouped,
+        ];
   return { flat, groups };
 }
 
-let FORMAT_OPTIONS, PRODUCT, CONCEPT, CONCEPT_GROUPS, CONCEPT_OPTIONS,
-  SUB_CONCEPT_MAP, CONCEPTS_WITH_SUBCONCEPT, VERSION_OPTIONS;
+let FORMAT_OPTIONS,
+  PRODUCT,
+  CONCEPT,
+  CONCEPT_GROUPS,
+  CONCEPT_OPTIONS,
+  SUB_CONCEPT_MAP,
+  CONCEPTS_WITH_SUBCONCEPT,
+  VERSION_OPTIONS;
 
 const SPEC_OPTIONS = ["1x1", "4x5", "9x16", "16x9"];
 
@@ -105,9 +141,10 @@ const URL_FIELDS = [
   "subConcept",
   "identifier",
   "version",
+  "date",
 ];
 
-const FIELD_DEFAULTS = { version: "v1" };
+const FIELD_DEFAULTS = { version: "v1", date: todayYYMMDD() };
 
 function stateFromURL() {
   const p = new URLSearchParams(location.search);
@@ -115,6 +152,7 @@ function stateFromURL() {
   URL_FIELDS.forEach((k) => {
     s[k] = p.get(k) || FIELD_DEFAULTS[k] || "";
   });
+  if (!parseYYMMDD(s.date)) s.date = todayYYMMDD();
   return s;
 }
 
@@ -148,6 +186,11 @@ let currentVariants = [];
 // Undo stack — stores snapshots of URL fields only, not transient UI state.
 const UNDO_MAX = 50;
 let undoStack = [];
+
+// Date picker UI state (not in store — doesn't need URL sync)
+let datePickerOpen = false;
+let datePickerViewYear = new Date().getFullYear();
+let datePickerViewMonth = new Date().getMonth();
 
 function getFieldSnapshot() {
   const s = state.get();
@@ -183,6 +226,7 @@ function saveCopyHistory(history) {
 }
 
 let copyHistory = loadCopyHistory();
+let confirmClearHistoryOpen = false;
 
 function addToCopyHistory(label, name) {
   copyHistory = [{ label, name }, ...copyHistory].slice(0, COPY_HISTORY_MAX);
@@ -190,9 +234,26 @@ function addToCopyHistory(label, name) {
   rerender();
 }
 
-function handleClearHistory() {
+function handleClearHistoryClick() {
+  confirmClearHistoryOpen = true;
+  rerender();
+}
+
+function handleConfirmClearHistory() {
+  confirmClearHistoryOpen = false;
   copyHistory = [];
   saveCopyHistory(copyHistory);
+  rerender();
+}
+
+function handleCancelClearHistory() {
+  confirmClearHistoryOpen = false;
+  rerender();
+}
+
+function handleClearHistoryModalBackdrop(e) {
+  if (e.target.closest(".modal-dialog")) return;
+  confirmClearHistoryOpen = false;
   rerender();
 }
 
@@ -373,6 +434,7 @@ function handleClearSubConcept(e) {
 }
 function handleResetAll() {
   pushUndoSnapshot();
+  datePickerOpen = false;
   Object.keys(dropdownFilters).forEach((k) => delete dropdownFilters[k]);
   Object.keys(dropdownHighlight).forEach((k) => delete dropdownHighlight[k]);
   state.set({
@@ -383,8 +445,49 @@ function handleResetAll() {
     subConcept: "",
     identifier: "",
     version: "v1",
+    date: todayYYMMDD(),
     openDropdown: null,
   });
+}
+
+function handleDatePickerToggle() {
+  datePickerOpen = !datePickerOpen;
+  if (datePickerOpen) {
+    const d = parseYYMMDD(state.get().date) || new Date();
+    datePickerViewYear = d.getFullYear();
+    datePickerViewMonth = d.getMonth();
+  }
+  rerender();
+}
+
+function handleDatePickerPrevMonth() {
+  if (datePickerViewMonth === 0) {
+    datePickerViewMonth = 11;
+    datePickerViewYear--;
+  } else {
+    datePickerViewMonth--;
+  }
+  rerender();
+}
+
+function handleDatePickerNextMonth() {
+  if (datePickerViewMonth === 11) {
+    datePickerViewMonth = 0;
+    datePickerViewYear++;
+  } else {
+    datePickerViewMonth++;
+  }
+  rerender();
+}
+
+function handleDatePickerGridClick(e) {
+  const cell = e.target.closest(".dp-day");
+  if (!cell) return;
+  const dateStr = cell.getAttribute("data-date");
+  if (!dateStr) return;
+  pushUndoSnapshot();
+  datePickerOpen = false;
+  state.set({ ...state.get(), date: dateStr });
 }
 
 // Backspace/Delete on a focused trigger button (Tab navigation mode) clears the field
@@ -683,8 +786,22 @@ document.addEventListener("click", (e) => {
   }
 });
 
+// Close datepicker when clicking outside its container
+document.addEventListener("click", (e) => {
+  if (datePickerOpen && !e.target.closest(".datepicker-container")) {
+    datePickerOpen = false;
+    rerender();
+  }
+});
+
 // Keyboard navigation for open dropdowns
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && datePickerOpen) {
+    datePickerOpen = false;
+    rerender();
+    return;
+  }
+
   const { openDropdown } = state.get();
   if (!openDropdown) return;
 
@@ -755,7 +872,8 @@ document.addEventListener("keydown", (e) => {
 // ============================================================
 
 function buildName(fields) {
-  const { format, product, concept, subConcept, identifier, version } = fields;
+  const { format, product, concept, subConcept, identifier, version, date } =
+    fields;
   const hasSubCategory = CONCEPTS_WITH_SUBCONCEPT.has(concept);
 
   // State 1: Nothing filled
@@ -779,18 +897,18 @@ function buildName(fields) {
   // State 3: Missing required fields
   const requiredFields = hasSubCategory
     ? [
-      { value: format, label: "포맷" },
-      { value: product, label: "제품" },
-      { value: concept, label: "소재 컨셉" },
-      { value: subConcept, label: "세부 콘셉" },
-      { value: identifier, label: "소재 별명" },
-    ]
+        { value: format, label: "포맷" },
+        { value: product, label: "제품" },
+        { value: concept, label: "소재 컨셉" },
+        { value: subConcept, label: "세부 콘셉" },
+        { value: identifier, label: "소재 별명" },
+      ]
     : [
-      { value: format, label: "포맷" },
-      { value: product, label: "제품" },
-      { value: concept, label: "소재 컨셉" },
-      { value: identifier, label: "소재 별명" },
-    ];
+        { value: format, label: "포맷" },
+        { value: product, label: "제품" },
+        { value: concept, label: "소재 컨셉" },
+        { value: identifier, label: "소재 별명" },
+      ];
 
   const missing = requiredFields.filter((f) => !f.value).map((f) => f.label);
   if (missing.length > 0) {
@@ -799,7 +917,9 @@ function buildName(fields) {
 
   // State 4: Success — generate one variant per spec plus a no-spec variant
   const conceptPart = hasSubCategory ? `${concept}[${subConcept}]` : concept;
-  const base = [format, product, conceptPart, identifier, version].join("_");
+  const base = [format, product, conceptPart, identifier, version, date].join(
+    "_",
+  );
   const variants = [
     { label: "공통", name: base },
     ...SPEC_OPTIONS.map((spec) => ({
@@ -837,10 +957,10 @@ function renderOption(
     h("span", { className: "option-label" }, opt),
     subOptions && subOptions.has(opt)
       ? h(
-        "span",
-        { className: "material-symbols-rounded option-sub-icon" },
-        "tune",
-      )
+          "span",
+          { className: "material-symbols-rounded option-sub-icon" },
+          "tune",
+        )
       : null,
     h("span", { className: "material-symbols-rounded check-icon" }, "check"),
   );
@@ -932,80 +1052,80 @@ const CustomDropdown = (props) => {
       },
       searchable
         ? h(
-          "div",
-          { className: "dropdown-search" },
-          h(
-            "span",
-            { className: "material-symbols-rounded dropdown-search-icon" },
-            "search",
-          ),
-          h("input", {
-            className: "dropdown-search-input",
-            type: "text",
-            placeholder: "검색",
-            value: filterText,
-            onInput: onFilterInput,
-          }),
-        )
+            "div",
+            { className: "dropdown-search" },
+            h(
+              "span",
+              { className: "material-symbols-rounded dropdown-search-icon" },
+              "search",
+            ),
+            h("input", {
+              className: "dropdown-search-input",
+              type: "text",
+              placeholder: "검색",
+              value: filterText,
+              onInput: onFilterInput,
+            }),
+          )
         : null,
       ...(groups
         ? (() => {
-          let optIdx = 0;
-          let anyVisible = false;
-          const rendered = groups.flatMap(({ label, items }) => {
-            const groupMatch = labelMatchesFilter(label, filterText);
-            const visibleItems =
-              filterText && !groupMatch
-                ? items.filter((opt) => matchesFilter(opt, filterText))
-                : items;
-            if (visibleItems.length === 0) return [];
-            anyVisible = true;
+            let optIdx = 0;
+            let anyVisible = false;
+            const rendered = groups.flatMap(({ label, items }) => {
+              const groupMatch = labelMatchesFilter(label, filterText);
+              const visibleItems =
+                filterText && !groupMatch
+                  ? items.filter((opt) => matchesFilter(opt, filterText))
+                  : items;
+              if (visibleItems.length === 0) return [];
+              anyVisible = true;
+              return [
+                ...(label
+                  ? [h("div", { className: "dropdown-group-label" }, label)]
+                  : []),
+                ...visibleItems.map((opt) => {
+                  const isHighlighted = optIdx === highlightIdx;
+                  optIdx++;
+                  return renderOption(
+                    fieldName,
+                    opt,
+                    value,
+                    subOptions,
+                    isHighlighted,
+                  );
+                }),
+              ];
+            });
             return [
-              ...(label
-                ? [h("div", { className: "dropdown-group-label" }, label)]
-                : []),
-              ...visibleItems.map((opt) => {
-                const isHighlighted = optIdx === highlightIdx;
-                optIdx++;
-                return renderOption(
-                  fieldName,
-                  opt,
-                  value,
-                  subOptions,
-                  isHighlighted,
-                );
-              }),
+              ...rendered,
+              searchable && filterText && !anyVisible
+                ? h(
+                    "div",
+                    { className: "dropdown-no-results" },
+                    "검색 결과가 없어요",
+                  )
+                : null,
             ];
-          });
-          return [
-            ...rendered,
-            searchable && filterText && !anyVisible
-              ? h(
-                "div",
-                { className: "dropdown-no-results" },
-                "검색 결과가 없어요",
-              )
-              : null,
-          ];
-        })()
+          })()
         : [
-          ...filteredOptions.map((opt, i) =>
-            renderOption(
-              fieldName,
-              opt,
-              value,
-              subOptions,
-              i === highlightIdx,
+            ...filteredOptions.map((opt, i) =>
+              renderOption(
+                fieldName,
+                opt,
+                value,
+                subOptions,
+                i === highlightIdx,
+              ),
             ),
-          ),
-          searchable && filterText && filteredOptions.length === 0
-            ? h(
-              "div",
-              { className: "dropdown-no-results" },
-              "검색 결과가 없어요",
-            )
-            : null,
-        ]),
+            searchable && filterText && filteredOptions.length === 0
+              ? h(
+                  "div",
+                  { className: "dropdown-no-results" },
+                  "검색 결과가 없어요",
+                )
+              : null,
+          ]),
     ),
   );
 };
@@ -1149,35 +1269,35 @@ const InputField = (props) => {
       }),
       suggestions && suggestions.length > 0
         ? h(
-          "div",
-          {
-            className: "suggestions-menu",
-            onMouseDown: handleSuggestionMouseDown,
-          },
-          ...suggestions.map((s, i) =>
-            h(
-              "div",
-              {
-                className:
-                  i === highlightIdx
-                    ? "suggestion-item highlighted"
-                    : "suggestion-item",
-                "data-value": s,
-              },
-              h("span", { className: "suggestion-text" }, s),
+            "div",
+            {
+              className: "suggestions-menu",
+              onMouseDown: handleSuggestionMouseDown,
+            },
+            ...suggestions.map((s, i) =>
               h(
-                "button",
+                "div",
                 {
-                  className: "suggestion-remove",
-                  type: "button",
-                  tabIndex: -1,
-                  title: "기록에서 삭제",
+                  className:
+                    i === highlightIdx
+                      ? "suggestion-item highlighted"
+                      : "suggestion-item",
+                  "data-value": s,
                 },
-                h("span", { className: "material-symbols-rounded" }, "close"),
+                h("span", { className: "suggestion-text" }, s),
+                h(
+                  "button",
+                  {
+                    className: "suggestion-remove",
+                    type: "button",
+                    tabIndex: -1,
+                    title: "기록에서 삭제",
+                  },
+                  h("span", { className: "material-symbols-rounded" }, "close"),
+                ),
               ),
             ),
-          ),
-        )
+          )
         : null,
     ),
   );
@@ -1336,7 +1456,7 @@ const CopyHistoryCard = (props) => {
         "button",
         {
           className: "history-clear-btn",
-          onClick: handleClearHistory,
+          onClick: handleClearHistoryClick,
           tabIndex: -1,
           type: "button",
           title: "기록 지우기",
@@ -1374,6 +1494,207 @@ const CopyHistoryCard = (props) => {
     ),
   );
 };
+
+const DP_MONTH_NAMES = [
+  "1월",
+  "2월",
+  "3월",
+  "4월",
+  "5월",
+  "6월",
+  "7월",
+  "8월",
+  "9월",
+  "10월",
+  "11월",
+  "12월",
+];
+const DP_DAY_NAMES = ["일", "월", "화", "수", "목", "금", "토"];
+
+const DatePickerField = ({ value }) => {
+  const todayStr = todayYYMMDD();
+  const firstDay = new Date(datePickerViewYear, datePickerViewMonth, 1);
+  const startOffset = firstDay.getDay();
+  const daysInMonth = new Date(
+    datePickerViewYear,
+    datePickerViewMonth + 1,
+    0,
+  ).getDate();
+
+  const prevMonth = datePickerViewMonth === 0 ? 11 : datePickerViewMonth - 1;
+  const prevYear =
+    datePickerViewMonth === 0 ? datePickerViewYear - 1 : datePickerViewYear;
+  const nextMonth = datePickerViewMonth === 11 ? 0 : datePickerViewMonth + 1;
+  const nextYear =
+    datePickerViewMonth === 11 ? datePickerViewYear + 1 : datePickerViewYear;
+  const daysInPrevMonth = new Date(prevYear, prevMonth + 1, 0).getDate();
+
+  // Only render as many rows as the month actually needs (4, 5, or 6)
+  const totalCells = Math.ceil((startOffset + daysInMonth) / 7) * 7;
+
+  const cells = Array.from({ length: totalCells }, (_, i) => {
+    let day, year, month, inMonth;
+    if (i < startOffset) {
+      day = daysInPrevMonth - startOffset + 1 + i;
+      year = prevYear;
+      month = prevMonth;
+      inMonth = false;
+    } else if (i < startOffset + daysInMonth) {
+      day = i - startOffset + 1;
+      year = datePickerViewYear;
+      month = datePickerViewMonth;
+      inMonth = true;
+    } else {
+      day = i - startOffset - daysInMonth + 1;
+      year = nextYear;
+      month = nextMonth;
+      inMonth = false;
+    }
+    const cellStr = toYYMMDD(new Date(year, month, day));
+    const cls = [
+      "dp-day",
+      !inMonth ? "dp-day--out" : "",
+      cellStr === value ? "dp-day--selected" : "",
+      cellStr === todayStr ? "dp-day--today" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return h(
+      "button",
+      { className: cls, type: "button", "data-date": cellStr, tabIndex: -1 },
+      String(day),
+    );
+  });
+
+  return h(
+    "div",
+    { className: "field-row" },
+    h(
+      "label",
+      { className: "field-label" },
+      h(
+        "span",
+        { className: "material-symbols-rounded field-icon" },
+        "calendar_today",
+      ),
+      "날짜",
+      h(
+        "span",
+        { className: "field-tooltip" },
+        "소재 제작 날짜예요 (기본값은 오늘이에요)",
+      ),
+    ),
+    h(
+      "div",
+      { className: "datepicker-container" },
+      h(
+        "button",
+        {
+          className: datePickerOpen
+            ? "dropdown-trigger open"
+            : "dropdown-trigger",
+          type: "button",
+          onClick: handleDatePickerToggle,
+        },
+        h("span", { className: "dropdown-value" }, value),
+        h(
+          "span",
+          { className: "material-symbols-rounded dropdown-chevron" },
+          "expand_more",
+        ),
+      ),
+      datePickerOpen
+        ? h(
+            "div",
+            { className: "datepicker-panel" },
+            h(
+              "div",
+              { className: "dp-header" },
+              h(
+                "button",
+                {
+                  className: "dp-nav-btn",
+                  type: "button",
+                  onClick: handleDatePickerPrevMonth,
+                  tabIndex: -1,
+                },
+                h(
+                  "span",
+                  { className: "material-symbols-rounded" },
+                  "chevron_left",
+                ),
+              ),
+              h(
+                "span",
+                { className: "dp-month-label" },
+                `${datePickerViewYear}년 ${DP_MONTH_NAMES[datePickerViewMonth]}`,
+              ),
+              h(
+                "button",
+                {
+                  className: "dp-nav-btn",
+                  type: "button",
+                  onClick: handleDatePickerNextMonth,
+                  tabIndex: -1,
+                },
+                h(
+                  "span",
+                  { className: "material-symbols-rounded" },
+                  "chevron_right",
+                ),
+              ),
+            ),
+            h(
+              "div",
+              { className: "dp-grid", onClick: handleDatePickerGridClick },
+              ...DP_DAY_NAMES.map((d) =>
+                h("div", { className: "dp-weekday" }, d),
+              ),
+              ...cells,
+            ),
+          )
+        : null,
+    ),
+  );
+};
+
+const ClearHistoryModal = () =>
+  h(
+    "div",
+    { className: "modal-overlay", onClick: handleClearHistoryModalBackdrop },
+    h(
+      "div",
+      { className: "modal-dialog" },
+      h("h2", { className: "modal-title" }, "최근 복사 내역을 모두 지울까요?"),
+      h(
+        "p",
+        { className: "modal-body" },
+        "삭제한 복사 내역은 되돌릴 수 없어요",
+      ),
+      h(
+        "div",
+        { className: "modal-actions" },
+        h(
+          "button",
+          {
+            type: "button",
+            className: "modal-cancel",
+            onClick: handleCancelClearHistory,
+          },
+          "취소",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "modal-confirm",
+            onClick: handleConfirmClearHistory,
+          },
+          "모두 지우기",
+        ),
+      ),
+    ),
+  );
 
 function App() {
   const s = state.get();
@@ -1506,27 +1827,28 @@ function App() {
             value: s.version,
             tooltip: "같은 소재의 버전이에요 (기본값은 v1이에요)",
           }),
+          h(DatePickerField, { value: s.date }),
         ),
         anyFilled
           ? h(
-            "div",
-            { className: "reset-row" },
-            h(
-              "button",
-              {
-                className: "reset-btn",
-                onClick: handleResetAll,
-                type: "button",
-                tabIndex: -1,
-              },
+              "div",
+              { className: "reset-row" },
               h(
-                "span",
-                { className: "material-symbols-rounded" },
-                "restart_alt",
+                "button",
+                {
+                  className: "reset-btn",
+                  onClick: handleResetAll,
+                  type: "button",
+                  tabIndex: -1,
+                },
+                h(
+                  "span",
+                  { className: "material-symbols-rounded" },
+                  "restart_alt",
+                ),
+                "초기화",
               ),
-              "초기화",
-            ),
-          )
+            )
           : null,
         h("div", { className: "divider" }),
         result.status === "success" ? h(ShareSection, {}) : null,
@@ -1593,6 +1915,7 @@ function App() {
         "APPSILON Corp.",
       ),
     ),
+    confirmClearHistoryOpen ? h(ClearHistoryModal, {}) : null,
   );
 }
 
@@ -1615,9 +1938,12 @@ fetch("data.json")
       }),
     );
     CONCEPTS_WITH_SUBCONCEPT = new Set(Object.keys(SUB_CONCEPT_MAP));
-    VERSION_OPTIONS = Array.from({ length: data.versionMax }, (_, i) => `v${i + 1}`);
+    VERSION_OPTIONS = Array.from(
+      { length: data.versionMax },
+      (_, i) => `v${i + 1}`,
+    );
 
-    root = createRoot(document.body);
+    root = createRoot(document.getElementById("page-content"));
     state.subscribe(() => {
       syncStateToURL(state.get());
       root.render(App());
