@@ -895,7 +895,7 @@ function buildName(fields) {
   if (!hasSubCategory && subConcept) {
     return {
       status: "error",
-      message: "⛔ 소분류 적용이 불가한 소재 콘셉이에요. 소분류를 비워주세요.",
+      message: "⛔ 소분류 적용이 불가한 소재 컨셉이에요. 소분류를 비워주세요.",
     };
   }
 
@@ -905,7 +905,7 @@ function buildName(fields) {
         { value: format, label: "포맷" },
         { value: product, label: "제품" },
         { value: concept, label: "소재 컨셉" },
-        { value: subConcept, label: "세부 콘셉" },
+        { value: subConcept, label: "세부 컨셉" },
         { value: identifier, label: "소재 별명" },
       ]
     : [
@@ -1801,7 +1801,7 @@ function App() {
             onToggle: toggleConcept,
             onMenuClick: handleConceptMenuClick,
             onClear: handleClearConcept,
-            tooltip: "소재의 중심이 되는 콘셉을 선택해요",
+            tooltip: "소재의 중심이 되는 컨셉을 선택해요",
             searchable: true,
             onFilterInput: handleConceptFilterInput,
             subOptions: CONCEPTS_WITH_SUBCONCEPT,
@@ -1815,7 +1815,7 @@ function App() {
                 : "sub-concept-wrapper hidden",
             },
             h(DropdownField, {
-              label: "세부 콘셉",
+              label: "세부 컨셉",
               icon: "tune",
               fieldName: "subConcept",
               value: s.subConcept,
@@ -1823,7 +1823,7 @@ function App() {
               onToggle: toggleSubConcept,
               onMenuClick: handleSubConceptMenuClick,
               onClear: handleClearSubConcept,
-              tooltip: "선택한 콘셉을 더 세부적으로 구분할 때 사용해요",
+              tooltip: "선택한 컨셉을 더 세부적으로 구분할 때 사용해요",
               searchable: true,
               onFilterInput: handleSubConceptFilterInput,
               groups: subConceptGroups,
