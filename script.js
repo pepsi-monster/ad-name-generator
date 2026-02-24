@@ -152,7 +152,7 @@ function stateFromURL() {
   URL_FIELDS.forEach((k) => {
     s[k] = p.get(k) || FIELD_DEFAULTS[k] || "";
   });
-  if (!parseYYMMDD(s.date)) s.date = todayYYMMDD();
+  if (s.date && !parseYYMMDD(s.date)) s.date = todayYYMMDD();
   return s;
 }
 
@@ -431,6 +431,11 @@ function handleClearConcept(e) {
 function handleClearSubConcept(e) {
   e.stopPropagation();
   selectOption("subConcept", "");
+}
+function handleClearDate(e) {
+  e.stopPropagation();
+  datePickerOpen = false;
+  state.set({ ...state.get(), date: "" });
 }
 function handleResetAll() {
   pushUndoSnapshot();
@@ -917,9 +922,9 @@ function buildName(fields) {
 
   // State 4: Success — generate one variant per spec plus a no-spec variant
   const conceptPart = hasSubCategory ? `${concept}[${subConcept}]` : concept;
-  const base = [format, product, conceptPart, identifier, version, date].join(
-    "_",
-  );
+  const nameParts = [format, product, conceptPart, identifier, version];
+  if (date) nameParts.push(date);
+  const base = nameParts.join("_");
   const variants = [
     { label: "공통", name: base },
     ...SPEC_OPTIONS.map((spec) => ({
@@ -1581,7 +1586,7 @@ const DatePickerField = ({ value }) => {
       h(
         "span",
         { className: "field-tooltip" },
-        "소재 제작 날짜예요 (기본값은 오늘이에요)",
+        "날짜를 선택하면 소재명에 포함돼요",
       ),
     ),
     h(
@@ -1596,7 +1601,23 @@ const DatePickerField = ({ value }) => {
           type: "button",
           onClick: handleDatePickerToggle,
         },
-        h("span", { className: "dropdown-value" }, value),
+        h(
+          "span",
+          {
+            className: value ? "dropdown-value" : "dropdown-value placeholder",
+          },
+          value || "날짜 미포함",
+        ),
+        h(
+          "span",
+          {
+            className: value
+              ? "dropdown-clear"
+              : "dropdown-clear dropdown-clear--hidden",
+            onClick: handleClearDate,
+          },
+          h("span", { className: "material-symbols-rounded" }, "close"),
+        ),
         h(
           "span",
           { className: "material-symbols-rounded dropdown-chevron" },
