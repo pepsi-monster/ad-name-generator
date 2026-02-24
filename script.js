@@ -1,162 +1,4 @@
-// ============================================================
-// FRAMEWORK
-// ============================================================
-
-function h(elType, elProps = {}, ...elChildren) {
-  const _elChildren = elChildren
-    .flat(Infinity) // Safely unwrap nested arrays from .map()
-    .filter(
-      (child) =>
-        child !== null && child !== undefined && typeof child !== "boolean", // Strips out 'false' from {condition && element}
-    )
-    .map((child) => {
-      if (typeof child === "string" || typeof child === "number")
-        return {
-          type: "TEXT_ELEMENT",
-          props: { nodeValue: child },
-        };
-      return child;
-    });
-
-  return { type: elType, props: { ...elProps, children: _elChildren } };
-}
-
-function mount(vNode, container) {
-  if (typeof vNode.type === "function") {
-    const unPackedVNode = vNode.type(vNode.props);
-    vNode._dom = mount(unPackedVNode, container);
-    vNode._rendered = unPackedVNode;
-    return vNode._dom; // The 'return' is key!
-  }
-
-  const dom =
-    vNode.type === "TEXT_ELEMENT"
-      ? document.createTextNode(vNode.props.nodeValue)
-      : document.createElement(vNode.type);
-
-  vNode._dom = dom;
-
-  if (vNode.type === "TEXT_ELEMENT") return container.appendChild(dom);
-
-  const excluded = new Set(["children", "nodeValue"]);
-  for (const [attribute, value] of Object.entries(vNode.props)) {
-    if (attribute.startsWith("on")) {
-      dom.addEventListener(attribute.toLowerCase().slice(2).trim(), value);
-    } else if (!excluded.has(attribute)) {
-      if (attribute.includes("-")) {
-        dom.setAttribute(attribute, value);
-      } else {
-        dom[attribute] = value;
-      }
-    }
-  }
-
-  vNode.props.children.forEach((child) => {
-    if (child === null || child == undefined) return;
-    mount(child, dom);
-  });
-
-  return container.appendChild(dom);
-}
-
-const createStore = function (initialValue) {
-  let value = initialValue;
-  let subscribers = [];
-  return {
-    get: () => value,
-    set: (newValue) => {
-      value = newValue;
-      subscribers.forEach((fn) => fn());
-    },
-    subscribe: (...fnArr) => {
-      subscribers.push(...fnArr);
-    },
-  };
-};
-
-const patchProps = function (oldProps, newProps, dom) {
-  const newPropsArr = Object.keys(newProps);
-  const oldPropsArr = Object.keys(oldProps);
-
-  const excluded = new Set(["children", "nodeValue"]);
-
-  // 1. ADD or UPDATE props
-  newPropsArr.forEach((attribute) => {
-    if (
-      (!oldPropsArr.includes(attribute) ||
-        oldProps[attribute] !== newProps[attribute]) &&
-      !excluded.has(attribute)
-    ) {
-      // Apply the same hyphen check here
-      if (attribute.includes("-")) {
-        dom.setAttribute(attribute, newProps[attribute]);
-      } else {
-        dom[attribute] = newProps[attribute];
-      }
-    }
-  });
-
-  // 2. REMOVE old props
-  oldPropsArr.forEach((attribute) => {
-    if (!newPropsArr.includes(attribute) && !excluded.has(attribute)) {
-      dom.removeAttribute(attribute); // This already works great for data-/aria- tags!
-    }
-  });
-};
-
-const diff = function (oldVNode, newVNode, parent) {
-  if (!oldVNode && !newVNode) return;
-  if (!oldVNode) {
-    mount(newVNode, parent);
-  } else if (!newVNode) {
-    parent.removeChild(oldVNode._dom);
-  } else if (oldVNode.type !== newVNode.type) {
-    mount(newVNode, parent);
-    parent.replaceChild(newVNode._dom, oldVNode._dom);
-  } else if (
-    typeof oldVNode.type === "function" ||
-    typeof newVNode.type === "function"
-  ) {
-    const unpackedOldVNode = oldVNode._rendered;
-    const unpackedNewVNode = newVNode.type(newVNode.props);
-    newVNode._rendered = unpackedNewVNode;
-    newVNode._dom = oldVNode._dom;
-    return diff(unpackedOldVNode, unpackedNewVNode, parent);
-  } else if (oldVNode && newVNode) {
-    if (newVNode.type === "TEXT_ELEMENT" && oldVNode.type === "TEXT_ELEMENT") {
-      oldVNode._dom.nodeValue = newVNode.props.nodeValue;
-      newVNode._dom = oldVNode._dom;
-
-      return;
-    }
-
-    patchProps(oldVNode.props, newVNode.props, oldVNode._dom);
-    newVNode._dom = oldVNode._dom;
-
-    const maxLength = Math.max(
-      oldVNode.props.children.length,
-      newVNode.props.children.length,
-    );
-
-    for (let i = 0; i < maxLength; i++) {
-      diff(
-        oldVNode.props.children[i],
-        newVNode.props.children[i],
-        oldVNode._dom,
-      );
-    }
-  }
-};
-
-const createRoot = function (container) {
-  let oldVNode;
-  return {
-    render: (vNode) => {
-      diff(oldVNode, vNode, container);
-      oldVNode = vNode;
-    },
-  };
-};
+// Framework lives in framework.js — loaded before this script.
 
 // ============================================================
 // KOREAN SEARCH HELPERS
@@ -228,243 +70,6 @@ function labelMatchesFilter(label, filterText) {
 }
 
 // ============================================================
-// DATA — only edit this section to add/change options
-// ============================================================
-
-const DATA = {
-  format: ["비디오", "이미지", "캐러셀"],
-
-  // Plain strings = ungrouped. { label, items } = grouped. Mix is allowed.
-  product: [
-    "ALL",
-    { label: "Refa", items: ["M1", "파인버블", "브러시", "카사업"] },
-    { label: "Like Eat", items: ["쓸림쏙", "파인셔스"] },
-  ],
-
-  concept: {
-    // Same format as product: plain strings or { label, items } groups.
-    options: [
-      { label: "인물/공감", items: ["인플루언서", "셀럽", "일반인", "공감형"] },
-      {
-        label: "정보/설득",
-        items: ["기능", "정보", "리뷰", "문제해결", "비교", "수상인증"],
-      },
-      { label: "감성/라이프", items: ["감성", "라이프스타일"] },
-      {
-        label: "퍼포먼스",
-        items: ["대세감", "할인", "신제품", "시즌", "이벤트"],
-      },
-    ],
-    // To add a concept with sub-concepts: add an entry here.
-    // Value uses the same format (plain strings or { label, items } groups).
-    subConcepts: {
-      인플루언서: [
-        {
-          label: "규모",
-          items: ["나노", "마이크로", "미드티어", "매크로", "준메가", "메가"],
-        },
-      ],
-      셀럽: [
-        {
-          label: "분야",
-          items: ["배우", "가수", "유튜버", "방송인", "스포츠선수"],
-        },
-      ],
-      일반인: [
-        {
-          label: "타겟",
-          items: ["주부", "MZ", "시니어", "직장인", "학생"],
-        },
-      ],
-      공감형: [
-        {
-          label: "고민 유형",
-          items: ["피부고민", "건강고민", "다이어트", "생활불편", "감정공감"],
-        },
-      ],
-      기능: [
-        {
-          label: "피부 효능",
-          items: [
-            "보습",
-            "진정",
-            "미백",
-            "탄력",
-            "커버",
-            "지속력",
-            "각질",
-            "광채",
-            "피지",
-            "모공",
-            "주름",
-          ],
-        },
-        {
-          label: "사용감",
-          items: ["흡수력", "끈적임없음", "발림성", "향", "무향", "제형"],
-        },
-        {
-          label: "편의/포장",
-          items: [
-            "휴대성",
-            "올인원",
-            "대용량",
-            "펌프형",
-            "이지워시",
-            "퀵",
-            "하루한알",
-            "2in1",
-            "클렌징",
-          ],
-        },
-        {
-          label: "성분/안전",
-          items: [
-            "순함",
-            "비건",
-            "성분",
-            "유기농",
-            "고함량",
-            "탈모",
-            "EWG",
-            "무첨가",
-          ],
-        },
-        { label: "가격/혜택", items: ["가성비", "사은품", "한정판"] },
-        {
-          label: "건강기능식품",
-          items: [
-            "활력",
-            "면역",
-            "수면",
-            "기억력",
-            "혈행",
-            "눈건강",
-            "관절",
-            "간건강",
-            "체지방",
-            "쾌변",
-            "붓기",
-            "소화",
-            "목넘김",
-            "맛",
-          ],
-        },
-      ],
-      정보: [
-        {
-          label: "정보 유형",
-          items: ["성분소개", "사용법", "작동원리", "수치데이터", "팁"],
-        },
-      ],
-      리뷰: [
-        {
-          label: "후기 유형",
-          items: ["영상후기", "텍스트후기", "재구매후기", "전문가추천", "별점"],
-        },
-      ],
-      비교: [
-        {
-          label: "비교 유형",
-          items: ["전후비교", "타제품비교", "성분비교", "사용전후"],
-        },
-      ],
-      문제해결: [
-        {
-          label: "문제 유형",
-          items: [
-            "피부트러블",
-            "건강문제",
-            "다이어트",
-            "생활불편",
-            "피로스트레스",
-          ],
-        },
-      ],
-      수상인증: [
-        {
-          label: "종류",
-          items: ["국내수상", "해외수상", "인증마크", "언론보도"],
-        },
-      ],
-      감성: [
-        {
-          label: "무드",
-          items: [
-            "계절감",
-            "자연힐링",
-            "일상감성",
-            "청량",
-            "포근",
-            "고급스러움",
-          ],
-        },
-      ],
-      라이프스타일: [
-        {
-          label: "장면",
-          items: [
-            "데일리루틴",
-            "뷰티루틴",
-            "건강루틴",
-            "아웃도어",
-            "홈라이프",
-            "바쁜일상",
-          ],
-        },
-      ],
-      대세감: [
-        {
-          label: "증거 유형",
-          items: [
-            "SNS화제",
-            "입소문",
-            "품절대란",
-            "누적판매",
-            "트렌드",
-            "미디어노출",
-          ],
-        },
-      ],
-      할인: [
-        {
-          label: "혜택 유형",
-          items: ["할인율", "가격강조", "번들묶음", "쿠폰", "첫구매", "사은품"],
-        },
-      ],
-      신제품: [
-        {
-          label: "출시 유형",
-          items: ["신규론칭", "리뉴얼", "한정판", "재입고", "콜라보"],
-        },
-      ],
-      시즌: [
-        {
-          label: "계절",
-          items: ["봄", "여름", "가을", "겨울"],
-        },
-      ],
-      이벤트: [
-        {
-          label: "기념일",
-          items: [
-            "명절",
-            "발렌타인",
-            "화이트데이",
-            "어버이날",
-            "빼빼로데이",
-            "블랙프라이데이",
-            "크리스마스",
-          ],
-        },
-      ],
-    },
-  },
-
-  version: Array.from({ length: 99 }, (_, i) => `v${i + 1}`),
-};
-
-// ============================================================
 // DERIVED — do not edit below
 // ============================================================
 
@@ -478,25 +83,14 @@ function parseMixedOptions(def) {
     grouped.length === 0
       ? null
       : [
-          ...(standalone.length ? [{ label: null, items: standalone }] : []),
-          ...grouped,
-        ];
+        ...(standalone.length ? [{ label: null, items: standalone }] : []),
+        ...grouped,
+      ];
   return { flat, groups };
 }
 
-const FORMAT_OPTIONS = DATA.format;
-const PRODUCT = parseMixedOptions(DATA.product);
-const CONCEPT = parseMixedOptions(DATA.concept.options);
-const CONCEPT_GROUPS = CONCEPT.groups;
-const CONCEPT_OPTIONS = CONCEPT.flat;
-const SUB_CONCEPT_MAP = Object.fromEntries(
-  Object.entries(DATA.concept.subConcepts).map(([name, def]) => {
-    const { flat, groups } = parseMixedOptions(def);
-    return [name, { options: flat, groups }];
-  }),
-);
-const CONCEPTS_WITH_SUBCONCEPT = new Set(Object.keys(SUB_CONCEPT_MAP));
-const VERSION_OPTIONS = DATA.version;
+let FORMAT_OPTIONS, PRODUCT, CONCEPT, CONCEPT_GROUPS, CONCEPT_OPTIONS,
+  SUB_CONCEPT_MAP, CONCEPTS_WITH_SUBCONCEPT, VERSION_OPTIONS;
 
 const SPEC_OPTIONS = ["1x1", "4x5", "9x16", "16x9"];
 
@@ -1185,18 +779,18 @@ function buildName(fields) {
   // State 3: Missing required fields
   const requiredFields = hasSubCategory
     ? [
-        { value: format, label: "포맷" },
-        { value: product, label: "제품" },
-        { value: concept, label: "소재 컨셉" },
-        { value: subConcept, label: "세부 콘셉" },
-        { value: identifier, label: "소재 별명" },
-      ]
+      { value: format, label: "포맷" },
+      { value: product, label: "제품" },
+      { value: concept, label: "소재 컨셉" },
+      { value: subConcept, label: "세부 콘셉" },
+      { value: identifier, label: "소재 별명" },
+    ]
     : [
-        { value: format, label: "포맷" },
-        { value: product, label: "제품" },
-        { value: concept, label: "소재 컨셉" },
-        { value: identifier, label: "소재 별명" },
-      ];
+      { value: format, label: "포맷" },
+      { value: product, label: "제품" },
+      { value: concept, label: "소재 컨셉" },
+      { value: identifier, label: "소재 별명" },
+    ];
 
   const missing = requiredFields.filter((f) => !f.value).map((f) => f.label);
   if (missing.length > 0) {
@@ -1243,10 +837,10 @@ function renderOption(
     h("span", { className: "option-label" }, opt),
     subOptions && subOptions.has(opt)
       ? h(
-          "span",
-          { className: "material-symbols-rounded option-sub-icon" },
-          "tune",
-        )
+        "span",
+        { className: "material-symbols-rounded option-sub-icon" },
+        "tune",
+      )
       : null,
     h("span", { className: "material-symbols-rounded check-icon" }, "check"),
   );
@@ -1338,80 +932,80 @@ const CustomDropdown = (props) => {
       },
       searchable
         ? h(
-            "div",
-            { className: "dropdown-search" },
-            h(
-              "span",
-              { className: "material-symbols-rounded dropdown-search-icon" },
-              "search",
-            ),
-            h("input", {
-              className: "dropdown-search-input",
-              type: "text",
-              placeholder: "검색",
-              value: filterText,
-              onInput: onFilterInput,
-            }),
-          )
+          "div",
+          { className: "dropdown-search" },
+          h(
+            "span",
+            { className: "material-symbols-rounded dropdown-search-icon" },
+            "search",
+          ),
+          h("input", {
+            className: "dropdown-search-input",
+            type: "text",
+            placeholder: "검색",
+            value: filterText,
+            onInput: onFilterInput,
+          }),
+        )
         : null,
       ...(groups
         ? (() => {
-            let optIdx = 0;
-            let anyVisible = false;
-            const rendered = groups.flatMap(({ label, items }) => {
-              const groupMatch = labelMatchesFilter(label, filterText);
-              const visibleItems =
-                filterText && !groupMatch
-                  ? items.filter((opt) => matchesFilter(opt, filterText))
-                  : items;
-              if (visibleItems.length === 0) return [];
-              anyVisible = true;
-              return [
-                ...(label
-                  ? [h("div", { className: "dropdown-group-label" }, label)]
-                  : []),
-                ...visibleItems.map((opt) => {
-                  const isHighlighted = optIdx === highlightIdx;
-                  optIdx++;
-                  return renderOption(
-                    fieldName,
-                    opt,
-                    value,
-                    subOptions,
-                    isHighlighted,
-                  );
-                }),
-              ];
-            });
+          let optIdx = 0;
+          let anyVisible = false;
+          const rendered = groups.flatMap(({ label, items }) => {
+            const groupMatch = labelMatchesFilter(label, filterText);
+            const visibleItems =
+              filterText && !groupMatch
+                ? items.filter((opt) => matchesFilter(opt, filterText))
+                : items;
+            if (visibleItems.length === 0) return [];
+            anyVisible = true;
             return [
-              ...rendered,
-              searchable && filterText && !anyVisible
-                ? h(
-                    "div",
-                    { className: "dropdown-no-results" },
-                    "검색 결과가 없어요",
-                  )
-                : null,
+              ...(label
+                ? [h("div", { className: "dropdown-group-label" }, label)]
+                : []),
+              ...visibleItems.map((opt) => {
+                const isHighlighted = optIdx === highlightIdx;
+                optIdx++;
+                return renderOption(
+                  fieldName,
+                  opt,
+                  value,
+                  subOptions,
+                  isHighlighted,
+                );
+              }),
             ];
-          })()
-        : [
-            ...filteredOptions.map((opt, i) =>
-              renderOption(
-                fieldName,
-                opt,
-                value,
-                subOptions,
-                i === highlightIdx,
-              ),
-            ),
-            searchable && filterText && filteredOptions.length === 0
+          });
+          return [
+            ...rendered,
+            searchable && filterText && !anyVisible
               ? h(
-                  "div",
-                  { className: "dropdown-no-results" },
-                  "검색 결과가 없어요",
-                )
+                "div",
+                { className: "dropdown-no-results" },
+                "검색 결과가 없어요",
+              )
               : null,
-          ]),
+          ];
+        })()
+        : [
+          ...filteredOptions.map((opt, i) =>
+            renderOption(
+              fieldName,
+              opt,
+              value,
+              subOptions,
+              i === highlightIdx,
+            ),
+          ),
+          searchable && filterText && filteredOptions.length === 0
+            ? h(
+              "div",
+              { className: "dropdown-no-results" },
+              "검색 결과가 없어요",
+            )
+            : null,
+        ]),
     ),
   );
 };
@@ -1555,35 +1149,35 @@ const InputField = (props) => {
       }),
       suggestions && suggestions.length > 0
         ? h(
-            "div",
-            {
-              className: "suggestions-menu",
-              onMouseDown: handleSuggestionMouseDown,
-            },
-            ...suggestions.map((s, i) =>
+          "div",
+          {
+            className: "suggestions-menu",
+            onMouseDown: handleSuggestionMouseDown,
+          },
+          ...suggestions.map((s, i) =>
+            h(
+              "div",
+              {
+                className:
+                  i === highlightIdx
+                    ? "suggestion-item highlighted"
+                    : "suggestion-item",
+                "data-value": s,
+              },
+              h("span", { className: "suggestion-text" }, s),
               h(
-                "div",
+                "button",
                 {
-                  className:
-                    i === highlightIdx
-                      ? "suggestion-item highlighted"
-                      : "suggestion-item",
-                  "data-value": s,
+                  className: "suggestion-remove",
+                  type: "button",
+                  tabIndex: -1,
+                  title: "기록에서 삭제",
                 },
-                h("span", { className: "suggestion-text" }, s),
-                h(
-                  "button",
-                  {
-                    className: "suggestion-remove",
-                    type: "button",
-                    tabIndex: -1,
-                    title: "기록에서 삭제",
-                  },
-                  h("span", { className: "material-symbols-rounded" }, "close"),
-                ),
+                h("span", { className: "material-symbols-rounded" }, "close"),
               ),
             ),
-          )
+          ),
+        )
         : null,
     ),
   );
@@ -1915,24 +1509,24 @@ function App() {
         ),
         anyFilled
           ? h(
-              "div",
-              { className: "reset-row" },
+            "div",
+            { className: "reset-row" },
+            h(
+              "button",
+              {
+                className: "reset-btn",
+                onClick: handleResetAll,
+                type: "button",
+                tabIndex: -1,
+              },
               h(
-                "button",
-                {
-                  className: "reset-btn",
-                  onClick: handleResetAll,
-                  type: "button",
-                  tabIndex: -1,
-                },
-                h(
-                  "span",
-                  { className: "material-symbols-rounded" },
-                  "restart_alt",
-                ),
-                "초기화",
+                "span",
+                { className: "material-symbols-rounded" },
+                "restart_alt",
               ),
-            )
+              "초기화",
+            ),
+          )
           : null,
         h("div", { className: "divider" }),
         result.status === "success" ? h(ShareSection, {}) : null,
@@ -2006,9 +1600,27 @@ function App() {
 // INIT
 // ============================================================
 
-root = createRoot(document.body);
-state.subscribe(() => {
-  syncStateToURL(state.get());
-  root.render(App());
-});
-root.render(App());
+fetch("data.json")
+  .then((r) => r.json())
+  .then((data) => {
+    FORMAT_OPTIONS = data.format;
+    PRODUCT = parseMixedOptions(data.product);
+    CONCEPT = parseMixedOptions(data.concept.options);
+    CONCEPT_GROUPS = CONCEPT.groups;
+    CONCEPT_OPTIONS = CONCEPT.flat;
+    SUB_CONCEPT_MAP = Object.fromEntries(
+      Object.entries(data.concept.subConcepts).map(([name, def]) => {
+        const { flat, groups } = parseMixedOptions(def);
+        return [name, { options: flat, groups }];
+      }),
+    );
+    CONCEPTS_WITH_SUBCONCEPT = new Set(Object.keys(SUB_CONCEPT_MAP));
+    VERSION_OPTIONS = Array.from({ length: data.versionMax }, (_, i) => `v${i + 1}`);
+
+    root = createRoot(document.body);
+    state.subscribe(() => {
+      syncStateToURL(state.get());
+      root.render(App());
+    });
+    root.render(App());
+  });
