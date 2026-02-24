@@ -17,10 +17,6 @@ code {
   padding: 1px 5px;
 }
 
-:root {
-  --header-h: 56px;
-}
-
 body {
   background: var(--bg);
   color: var(--text);
@@ -30,35 +26,14 @@ body {
   scrollbar-gutter: stable;
 }
 
-/* ── Header ───────────────────────────────────────────────── */
-
-#admin-header {
-  position: sticky;
-  top: 0;
-  z-index: 100;
-  background: var(--surface);
-  border-bottom: 1px solid var(--border);
-  height: var(--header-h);
-  padding: 0 var(--space-6);
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
-
-.header-title {
-  font-size: var(--text-sm);
-  font-weight: 500;
-  color: var(--text-muted);
-}
-
-#download-btn {
+#submit-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
-  background: var(--accent);
-  color: #fff;
-  border: 1px solid transparent;
+  background: var(--surface-3);
+  color: var(--text-muted);
+  border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-sm);
@@ -71,20 +46,14 @@ body {
     color 0.15s;
 }
 
-#download-btn:hover {
+#submit-btn.dirty {
+  background: var(--accent);
+  color: #fff;
+  border-color: transparent;
+}
+
+#submit-btn.dirty:hover {
   background: var(--accent-hover);
-}
-
-#download-btn > .material-symbols-rounded {
-  font-size: var(--text-lg);
-}
-
-#download-btn.dirty {
-  background: var(--warning);
-}
-
-#download-btn.dirty:hover {
-  background: var(--warning-hover);
 }
 
 /* ── Main layout ──────────────────────────────────────────── */
@@ -92,7 +61,7 @@ body {
 #admin-main {
   max-width: 1100px;
   margin: 0 auto;
-  padding: var(--space-5);
+  padding: var(--space-8);
   height: calc(100vh - var(--header-h));
   overflow: hidden;
 }
@@ -965,6 +934,38 @@ body {
 .modal-confirm:focus-visible {
   outline: none;
   box-shadow: 0 0 0 3px rgba(224, 87, 87, 0.35);
+}
+
+.modal-confirm-primary {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--accent);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: var(--space-2) var(--space-4);
+  font-size: var(--text-sm);
+  font-weight: 500;
+  color: #fff;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.modal-confirm-primary:hover {
+  background: var(--accent-hover);
+}
+
+.modal-confirm-primary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px var(--accent-glow);
+}
+
+.modal-confirm-primary:disabled,
+.modal-cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
 }
 
 /* ── Footer ───────────────────────────────────────────────── */

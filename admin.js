@@ -17,6 +17,9 @@ const openConceptGroups = new Set(); // String(gi) for expanded concept groups
 
 let editingChip = null; // key string of chip being edited
 let confirmPending = null; // { action, ds } while modal is open — ds is plain obj from dataset
+let submitPending = false; // submit confirmation modal open
+let submitting = false; // fetch in progress
+let submitError = null; // error string from last failed submit
 
 // ─── Undo ─────────────────────────────────────────────────────
 const undoStack = [];
@@ -34,8 +37,13 @@ function applyUndo() {
   if (selectedNode) {
     const n = selectedNode;
     if (n.type === "product-group" && !data.product[n.gi]) selectedNode = null;
-    else if (n.type === "concept-group" && !data.concept.options[n.gi]) selectedNode = null;
-    else if (n.type === "concept-item" && !data.concept.options[n.gi]?.items.includes(n.ci)) selectedNode = null;
+    else if (n.type === "concept-group" && !data.concept.options[n.gi])
+      selectedNode = null;
+    else if (
+      n.type === "concept-item" &&
+      !data.concept.options[n.gi]?.items.includes(n.ci)
+    )
+      selectedNode = null;
   }
   markDirty();
 }
@@ -56,9 +64,13 @@ function isDuplicateLabel(label, v, ds) {
     case "concept-group":
       return data.concept.options.some((g, i) => g.label === v && i !== +ds.gi);
     case "subconcept-group":
-      return data.concept.subConcepts[ds.ci]?.some((g, i) => g.label === v && i !== +ds.scg);
+      return data.concept.subConcepts[ds.ci]?.some(
+        (g, i) => g.label === v && i !== +ds.scg,
+      );
     case "concept-item":
-      return data.concept.options[+ds.gi]?.items.some((item) => item === v && item !== ds.ci);
+      return data.concept.options[+ds.gi]?.items.some(
+        (item) => item === v && item !== ds.ci,
+      );
     default:
       return false;
   }
@@ -67,11 +79,17 @@ function isDuplicateLabel(label, v, ds) {
 function isDuplicateChip(editType, v, ds) {
   switch (editType) {
     case "product-group-item":
-      return data.product[+ds.gi]?.items.some((item, i) => item === v && i !== +ds.ii);
+      return data.product[+ds.gi]?.items.some(
+        (item, i) => item === v && i !== +ds.ii,
+      );
     case "concept-group-item":
-      return data.concept.options[+ds.gi]?.items.some((item, i) => item === v && i !== +ds.ii);
+      return data.concept.options[+ds.gi]?.items.some(
+        (item, i) => item === v && i !== +ds.ii,
+      );
     case "subconcept-group-item":
-      return data.concept.subConcepts[ds.ci]?.[+ds.scg]?.items.some((item, i) => item === v && i !== +ds.scgi);
+      return data.concept.subConcepts[ds.ci]?.[+ds.scg]?.items.some(
+        (item, i) => item === v && i !== +ds.scgi,
+      );
     default:
       return false;
   }
@@ -146,9 +164,7 @@ function rerender() {
 
 function markDirty() {
   dirty = true;
-  const btn = document.getElementById("download-btn");
-  btn.classList.add("dirty");
-  btn.textContent = "● data.json 다운로드";
+  document.getElementById("submit-btn").classList.add("dirty");
   rerender();
 }
 
@@ -224,9 +240,15 @@ function executeDelete(action, ds) {
 // ─── Stable event handlers ───────────────────────────────────
 
 const onAppClick = function (e) {
-  // Backdrop click dismisses the modal
+  // Backdrop click dismisses modals
   if (confirmPending && !e.target.closest(".modal-dialog")) {
     confirmPending = null;
+    rerender();
+    return;
+  }
+  if (submitPending && !submitting && !e.target.closest(".modal-dialog")) {
+    submitPending = false;
+    submitError = null;
     rerender();
     return;
   }
@@ -314,12 +336,28 @@ const onAppClick = function (e) {
       commitAdd(ds, "");
       break;
     }
+
+    case "cancel-submit":
+      submitPending = false;
+      submitError = null;
+      rerender();
+      break;
+
+    case "confirm-submit":
+      submitData();
+      break;
   }
 };
 
 const onAppKeydown = function (e) {
   if (e.key === "Escape" && confirmPending) {
     confirmPending = null;
+    rerender();
+    return;
+  }
+  if (e.key === "Escape" && submitPending && !submitting) {
+    submitPending = false;
+    submitError = null;
     rerender();
     return;
   }
@@ -1327,6 +1365,53 @@ function Modal() {
   );
 }
 
+// ─── Submit confirmation modal ────────────────────────────────
+
+function SubmitModal() {
+  return h(
+    "div",
+    { className: "modal-overlay" },
+    h(
+      "div",
+      { className: "modal-dialog" },
+      h("h2", { className: "modal-title" }, "변경 사항 적용"),
+      h(
+        "p",
+        { className: "modal-body" },
+        submitting
+          ? "서버에 전송 중이에요..."
+          : submitError
+            ? submitError
+            : "편집한 데이터를 적용할까요?",
+      ),
+      h(
+        "div",
+        { className: "modal-actions" },
+        h(
+          "button",
+          {
+            type: "button",
+            className: "modal-cancel",
+            "data-action": "cancel-submit",
+            disabled: submitting,
+          },
+          "취소",
+        ),
+        h(
+          "button",
+          {
+            type: "button",
+            className: "modal-confirm-primary",
+            "data-action": "confirm-submit",
+            disabled: submitting,
+          },
+          submitting ? "전송 중..." : "전송",
+        ),
+      ),
+    ),
+  );
+}
+
 // ─── App root ─────────────────────────────────────────────────
 
 function App() {
@@ -1350,26 +1435,37 @@ function App() {
       TreePanel(),
       h("div", { className: "editor-panel" }, EditorPanel()),
       confirmPending ? Modal() : null,
+      submitPending ? SubmitModal() : null,
     ),
     Footer(),
   );
 }
 
-// ─── Download ─────────────────────────────────────────────────
+// ─── Submit ───────────────────────────────────────────────────
 
-function download() {
-  const json = JSON.stringify(data, null, 2);
-  const blob = new Blob([json], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "data.json";
-  a.click();
-  URL.revokeObjectURL(url);
-  dirty = false;
-  const btn = document.getElementById("download-btn");
-  btn.classList.remove("dirty");
-  btn.textContent = "data.json 다운로드";
+async function submitData() {
+  submitting = true;
+  submitError = null;
+  rerender();
+  try {
+    // TODO: Replace with actual endpoint URL
+    // TODO: Add auth headers, e.g.: Authorization: `Bearer ${TOKEN}`
+    const res = await fetch("https://TODO_REPLACE_WITH_ENDPOINT", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+    if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
+    dirty = false;
+    submitPending = false;
+    submitting = false;
+    document.getElementById("submit-btn").classList.remove("dirty");
+    rerender();
+  } catch (err) {
+    submitError = err.message || "전송에 실패했어요. 다시 시도해주세요.";
+    submitting = false;
+    rerender();
+  }
 }
 
 window.addEventListener("beforeunload", (e) => {
@@ -1379,7 +1475,12 @@ window.addEventListener("beforeunload", (e) => {
   }
 });
 
-document.getElementById("download-btn").addEventListener("click", download);
+document.getElementById("submit-btn").addEventListener("click", function () {
+  if (!dirty) return;
+  submitPending = true;
+  submitError = null;
+  rerender();
+});
 
 document.addEventListener("keydown", function (e) {
   if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
