@@ -20,6 +20,8 @@ let confirmPending = null; // { action, ds } while modal is open — ds is plain
 let submitPending = false; // submit confirmation modal open
 let submitting = false; // fetch in progress
 let submitError = null; // error string from last failed submit
+let bulkPrompt = null; // { active: boolean, parts: string[], label: string, dupes: Set<number> }
+let dupeWarning = null; // the duplicate value string when single chip input matches an existing item
 
 // ─── Undo ─────────────────────────────────────────────────────
 const undoStack = [];
@@ -45,6 +47,8 @@ function applyUndo() {
     )
       selectedNode = null;
   }
+  dupeWarning = null;
+  bulkPrompt = null;
   markDirty();
 }
 
@@ -147,6 +151,21 @@ function getDeleteTypeLabel(action) {
     case "del-subconcept-group":
       return "세부 컨셉 그룹";
     case "del-subconcept-group-item":
+      return "세부 컨셉";
+    default:
+      return "항목";
+  }
+}
+
+// ─── Component Labels ────────────────────────────────────────
+
+function getLabelForType(type) {
+  switch (type) {
+    case "product-group-item":
+      return "제품";
+    case "concept-group-item":
+      return "컨셉";
+    case "subconcept-group-item":
       return "세부 컨셉";
     default:
       return "항목";
@@ -259,14 +278,34 @@ const onAppClick = function (e) {
 
   // First click on any del-* action opens the modal instead of executing
   if (ds.action.startsWith("del-")) {
-    confirmPending = { action: ds.action, ds: { ...ds } };
-    rerender();
+    const wasEditing = editingChip !== null;
+    editingChip = null;
+    bulkPrompt = null;
+    dupeWarning = null;
+    if (wasEditing) {
+      // Chip was being edited — intent is clear, skip confirmation
+      executeDelete(ds.action, { ...ds });
+    } else {
+      confirmPending = { action: ds.action, ds: { ...ds } };
+      rerender();
+    }
     return;
   }
 
   switch (ds.action) {
+    case "confirm-bulk-add": {
+      bulkPrompt = null;
+      const editingInp = document.querySelector(
+        `[data-edit-key="${editingChip}"]`,
+      );
+      if (editingInp) saveChipEdit(editingInp, true);
+      break;
+    }
+
     case "edit-chip":
       editingChip = ds.chipKey;
+      dupeWarning = null;
+      bulkPrompt = null;
       rerender();
       setTimeout(() => {
         const inp = document.querySelector("[data-edit-key]");
@@ -349,7 +388,7 @@ const onAppClick = function (e) {
   }
 };
 
-const onAppKeydown = function (e) {
+const onAppKeyDown = function (e) {
   if (e.key === "Escape" && confirmPending) {
     confirmPending = null;
     rerender();
@@ -365,14 +404,29 @@ const onAppKeydown = function (e) {
   if (inp.dataset.editKey) {
     if (e.key === "Enter") {
       e.preventDefault();
-      saveChipEdit(inp);
+      if (bulkPrompt && bulkPrompt.active) {
+        if (bulkPrompt.dupes.size > 0) {
+          // Has dupes — flash to signal "fix these first"
+          setTimeout(() => {
+            const i = document.querySelector("[data-edit-key]");
+            if (i) flashError(i);
+          }, 0);
+        } else {
+          bulkPrompt = null;
+          saveChipEdit(inp, true);
+        }
+      } else {
+        saveChipEdit(inp, false);
+      }
     } else if (e.key === "Escape") {
       // If this was a newly-added chip (editOrig === ""), delete the empty entry
       if (inp.dataset.editOrig === "") {
         inp.value = "";
-        saveChipEdit(inp);
+        saveChipEdit(inp, false);
       } else {
         editingChip = null;
+        bulkPrompt = null;
+        dupeWarning = null;
         rerender();
       }
     }
@@ -425,32 +479,59 @@ const onAppChange = function (e) {
 // ─── Shared helpers ───────────────────────────────────────────
 
 function commitAdd(ds, v) {
+  // If v is empty string (from the add button), we need to allow one placeholder chip to start editing
+  let parts;
+  if (v === "") {
+    parts = [""];
+  } else {
+    parts = v
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    if (parts.length === 0) return;
+  }
+
   pushUndo();
   let newKey = null;
+
   switch (ds.add) {
     case "product-group-item": {
       const arr = data.product[+ds.gi].items;
-      arr.push(v);
-      newKey = `p:${ds.gi}:${arr.length - 1}`;
+      for (const part of parts) {
+        if (!arr.includes(part)) arr.push(part);
+      }
+      if (parts.length === 1 && arr.includes(parts[0])) {
+        newKey = `p:${ds.gi}:${arr.length - 1}`;
+      }
       break;
     }
     case "concept-group-item": {
       const gi = +ds.gi;
       const arr = data.concept.options[gi].items;
-      arr.push(v);
-      newKey = `ci:${ds.gi}:${arr.length - 1}`;
+      for (const part of parts) {
+        if (!arr.includes(part)) arr.push(part);
+      }
+      if (parts.length === 1 && arr.includes(parts[0])) {
+        newKey = `ci:${ds.gi}:${arr.length - 1}`;
+      }
       break;
     }
     case "subconcept-group-item": {
       const arr = data.concept.subConcepts[ds.ci][+ds.scg].items;
-      arr.push(v);
-      newKey = `s:${ds.ci}:${ds.scg}:${arr.length - 1}`;
+      for (const part of parts) {
+        if (!arr.includes(part)) arr.push(part);
+      }
+      if (parts.length === 1 && arr.includes(parts[0])) {
+        newKey = `s:${ds.ci}:${ds.scg}:${arr.length - 1}`;
+      }
       break;
     }
   }
 
+  // Only auto-focus into edit mode if they added a single item
   if (newKey) {
     editingChip = newKey;
+    dupeWarning = null;
     rerender();
     setTimeout(() => {
       const inp = document.querySelector("[data-edit-key]");
@@ -459,17 +540,24 @@ function commitAdd(ds, v) {
         inp.select();
       }
     }, 0);
+  } else {
+    markDirty();
   }
-  markDirty();
 }
 
-function saveChipEdit(inp) {
+function saveChipEdit(inp, allowBulk = true) {
   const { editType, editOrig, editKey } = inp.dataset;
-  const v = inp.value.trim();
   editingChip = null;
+  dupeWarning = null;
 
-  // If the chip was left empty, delete it (push undo only for existing chips)
-  if (!v) {
+  const parts = inp.value
+    .split(";")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const finalParts = allowBulk ? parts : parts.length > 0 ? [parts[0]] : [];
+
+  // Empty → delete chip
+  if (parts.length === 0) {
     if (editOrig !== "") pushUndo();
     switch (editType) {
       case "product-group-item":
@@ -492,15 +580,16 @@ function saveChipEdit(inp) {
     return;
   }
 
-  // If the value hasn't changed, just exit edit mode
-  if (v === editOrig && editOrig !== "") {
+  // No-change → exit edit mode
+  if (parts.length === 1 && parts[0] === editOrig && editOrig !== "") {
     rerender();
     return;
   }
 
-  // Duplicate check — keep in edit mode with error highlight
-  if (v && isDuplicateChip(editType, v, inp.dataset)) {
+  // Duplicate on parts[0] → stay in edit mode with warning
+  if (parts.length > 0 && isDuplicateChip(editType, parts[0], inp.dataset)) {
     editingChip = editKey;
+    dupeWarning = parts[0];
     rerender();
     setTimeout(() => {
       const newInp = document.querySelector("[data-edit-key]");
@@ -512,28 +601,47 @@ function saveChipEdit(inp) {
   // New chips already have a snapshot from commitAdd; only push for editing existing chips
   if (editOrig !== "") pushUndo();
 
-  // Save the new value
+  // Save primary value + inject subsequent valid parts
   switch (editType) {
-    case "product-group-item":
-      data.product[+inp.dataset.gi].items[+inp.dataset.ii] = v;
-      break;
-    case "concept-group-item": {
-      data.concept.options[+inp.dataset.gi].items[+inp.dataset.ii] = v;
-      // Handle renaming concept subConcepts reference
-      if (editOrig && editOrig in data.concept.subConcepts) {
-        data.concept.subConcepts[v] = data.concept.subConcepts[editOrig];
-        delete data.concept.subConcepts[editOrig];
-      } else if (!(v in data.concept.subConcepts)) {
-        data.concept.subConcepts[v] = [];
+    case "product-group-item": {
+      const arr = data.product[+inp.dataset.gi].items;
+      arr[+inp.dataset.ii] = parts[0];
+      for (let i = 1; i < parts.length; i++) {
+        if (!arr.includes(parts[i]))
+          arr.splice(+inp.dataset.ii + i, 0, parts[i]);
       }
       break;
     }
-    case "subconcept-group-item":
-      data.concept.subConcepts[inp.dataset.ci][+inp.dataset.scg].items[
-        +inp.dataset.scgi
-      ] = v;
+    case "concept-group-item": {
+      const arr = data.concept.options[+inp.dataset.gi].items;
+      arr[+inp.dataset.ii] = parts[0];
+      if (editOrig && editOrig in data.concept.subConcepts) {
+        data.concept.subConcepts[parts[0]] = data.concept.subConcepts[editOrig];
+        delete data.concept.subConcepts[editOrig];
+      } else if (!(parts[0] in data.concept.subConcepts)) {
+        data.concept.subConcepts[parts[0]] = [];
+      }
+      for (let i = 1; i < parts.length; i++) {
+        if (!arr.includes(parts[i])) {
+          arr.splice(+inp.dataset.ii + i, 0, parts[i]);
+          if (!(parts[i] in data.concept.subConcepts))
+            data.concept.subConcepts[parts[i]] = [];
+        }
+      }
       break;
+    }
+    case "subconcept-group-item": {
+      const arr =
+        data.concept.subConcepts[inp.dataset.ci][+inp.dataset.scg].items;
+      arr[+inp.dataset.scgi] = parts[0];
+      for (let i = 1; i < finalParts.length; i++) {
+        if (!arr.includes(finalParts[i]))
+          arr.splice(+inp.dataset.scgi + i, 0, finalParts[i]);
+      }
+      break;
+    }
   }
+  bulkPrompt = null;
   markDirty();
 }
 
@@ -541,12 +649,73 @@ const onAppInput = function (e) {
   const inp = e.target;
   if (inp.dataset.editKey) {
     inp.size = Math.max(4, inp.value.length + 2);
+    const parts = inp.value
+      .split(";")
+      .map((s) => s.trim())
+      .filter(Boolean);
+    let changed = false;
+    if (parts.length > 1) {
+      const dupes = new Set(
+        parts.flatMap((p, i) =>
+          isDuplicateChip(inp.dataset.editType, p, inp.dataset) ? [i] : [],
+        ),
+      );
+      const partsKey = parts.join("\x00");
+      const dupesKey = [...dupes].join(",");
+      if (
+        !bulkPrompt ||
+        bulkPrompt.partsKey !== partsKey ||
+        [...bulkPrompt.dupes].join(",") !== dupesKey
+      ) {
+        bulkPrompt = {
+          active: true,
+          parts,
+          partsKey,
+          label: getLabelForType(inp.dataset.editType),
+          dupes,
+        };
+        changed = true;
+      }
+      if (dupeWarning !== null) {
+        dupeWarning = null;
+        changed = true;
+      }
+    } else {
+      if (bulkPrompt !== null) {
+        bulkPrompt = null;
+        changed = true;
+      }
+      const newDupe =
+        parts.length === 1 &&
+        isDuplicateChip(inp.dataset.editType, parts[0], inp.dataset)
+          ? parts[0]
+          : null;
+      if (newDupe !== dupeWarning) {
+        dupeWarning = newDupe;
+        changed = true;
+      }
+    }
+    if (changed) rerender();
   }
 };
 
 const onAppFocusOut = function (e) {
   const inp = e.target;
-  if (inp.dataset.editKey && editingChip !== null) saveChipEdit(inp);
+  // If we have an active bulk prompt, clicking IT will cause a focusOut on the input.
+  // We want to give the click handler a chance to fire instead of immediately saving/cancelling.
+  if (inp.dataset.editKey && editingChip !== null) {
+    if (bulkPrompt && bulkPrompt.active) {
+      // Defer the save to let the click action on the prompt register first
+      setTimeout(() => {
+        if (editingChip === inp.dataset.editKey) {
+          bulkPrompt = null;
+          saveChipEdit(inp, false); // false = don't force bulk, just save first part
+        }
+      }, 150);
+    } else {
+      saveChipEdit(inp, true);
+    }
+  }
 };
 
 const onAppDragStart = function (e) {
@@ -671,13 +840,18 @@ function Chip(text, delAction, delAttrs, opts) {
   const isDragging = dragSrc?.key === key;
   const isDragOver =
     !isDragging && dragOverIdx === idx && dragSrc?.list === list;
+
+  const showBulkPrompt = isEditing && bulkPrompt && bulkPrompt.active;
+  const showDupeWarning = isEditing && dupeWarning !== null;
+
   return h(
     "span",
     {
       className:
         "chip" +
         (isDragging ? " chip-dragging" : "") +
-        (isDragOver ? " chip-drag-over" : ""),
+        (isDragOver ? " chip-drag-over" : "") +
+        (isEditing ? " chip-editing" : ""),
       draggable: !isEditing,
       "data-chip-key": key,
       "data-chip-list": list,
@@ -692,25 +866,70 @@ function Chip(text, delAction, delAttrs, opts) {
     ),
     isEditing
       ? h("input", {
-        type: "text",
-        className: "chip-edit-inp",
-        value: text,
-        size: Math.max(4, text.length + 2),
-        "data-edit-key": key,
-        "data-edit-orig": text,
-        "data-edit-type": type,
-        ...delAttrs,
-      })
+          type: "text",
+          className: "chip-edit-inp",
+          value: text,
+          size: Math.max(4, text.length + 2),
+          "data-edit-key": key,
+          "data-edit-orig": text,
+          "data-edit-type": type,
+          ...delAttrs,
+        })
       : h(
-        "span",
-        {
-          className: "chip-text",
-          "data-action": "edit-chip",
-          "data-chip-key": key,
-        },
-        text,
-      ),
+          "span",
+          {
+            className: "chip-text",
+            "data-action": "edit-chip",
+            "data-chip-key": key,
+          },
+          text,
+        ),
     ChipDelBtn(delAction, delAttrs),
+    showBulkPrompt && bulkPrompt.dupes.size === 0
+      ? h(
+          "button",
+          {
+            type: "button",
+            className: "bulk-prompt-dropdown",
+            onMousedown: (e) => {
+              e.preventDefault();
+              bulkPrompt = null;
+              const editingInp = document.querySelector(
+                `[data-edit-key="${key}"]`,
+              );
+              if (editingInp) saveChipEdit(editingInp, true);
+            },
+          },
+          h("span", { className: "material-symbols-rounded" }, "library_add"),
+          `${new Set(bulkPrompt.parts).size}개 ${bulkPrompt.label}을 추가할까요?`,
+        )
+      : showBulkPrompt && bulkPrompt.dupes.size > 0
+        ? h(
+            "div",
+            { className: "bulk-prompt-dropdown is-warning" },
+            h("span", { className: "material-symbols-rounded" }, "warning"),
+            `이미 있는 ${bulkPrompt.label}이에요`,
+            h(
+              "span",
+              { className: "bulk-prompt-parts" },
+              ...bulkPrompt.parts
+                .filter((_, i) => bulkPrompt.dupes.has(i))
+                .flatMap((p, i) => [
+                  ...(i > 0
+                    ? [h("span", { className: "bulk-prompt-sep" }, "·")]
+                    : []),
+                  h("span", { className: "bulk-prompt-part is-dupe" }, p),
+                ]),
+            ),
+          )
+        : showDupeWarning
+          ? h(
+              "div",
+              { className: "bulk-prompt-dropdown is-warning" },
+              h("span", { className: "material-symbols-rounded" }, "warning"),
+              `이미 있는 ${getLabelForType(type)}이에요`,
+            )
+          : null,
   );
 }
 
@@ -813,24 +1032,24 @@ function TreePanel() {
           ),
           groupOpen
             ? h(
-              "ul",
-              { className: "tree-group-items" },
-              ...group.items.map((item) => {
-                const sel =
-                  selectedNode?.type === "concept-item" &&
-                  selectedNode.ci === item;
-                return h(
-                  "li",
-                  { className: "tree-leaf-wrap" },
-                  TreeLeaf(
-                    "select-concept-item",
-                    { "data-ci": item, "data-gi": gi },
-                    item,
-                    sel,
-                  ),
-                );
-              }),
-            )
+                "ul",
+                { className: "tree-group-items" },
+                ...group.items.map((item) => {
+                  const sel =
+                    selectedNode?.type === "concept-item" &&
+                    selectedNode.ci === item;
+                  return h(
+                    "li",
+                    { className: "tree-leaf-wrap" },
+                    TreeLeaf(
+                      "select-concept-item",
+                      { "data-ci": item, "data-gi": gi },
+                      item,
+                      sel,
+                    ),
+                  );
+                }),
+              )
             : null,
         );
       }),
@@ -855,7 +1074,86 @@ function EditorPanel() {
     return h(
       "div",
       { className: "editor-empty" },
-      "왼쪽에서 항목을 선택하세요.",
+      h(
+        "div",
+        { className: "empty-state-card" },
+        h("h2", { className: "empty-state-title" }, "환영합니다!"),
+        h(
+          "p",
+          { className: "empty-state-desc" },
+          "소재명을 구성하는 항목들을 완벽하게 관리해보세요.",
+          h("br"),
+          "3단계로 쉽게 시작할 수 있어요.",
+        ),
+        h(
+          "div",
+          { className: "empty-state-steps" },
+          // Step 1
+          h(
+            "div",
+            { className: "empty-state-step" },
+            h(
+              "div",
+              { className: "step-icon" },
+              h(
+                "span",
+                { className: "material-symbols-rounded step-icon-flip" },
+                "touch_app",
+              ),
+            ),
+            h(
+              "div",
+              { className: "step-content" },
+              h("div", { className: "step-title" }, "항목 선택하기"),
+              h(
+                "div",
+                { className: "step-desc" },
+                "왼쪽 사이드바에서 브랜드, 컨셉, 세부 컨셉 중 하나를 클릭하세요.",
+              ),
+            ),
+          ),
+          // Step 2
+          h(
+            "div",
+            { className: "empty-state-step" },
+            h(
+              "div",
+              { className: "step-icon" },
+              h("span", { className: "material-symbols-rounded" }, "edit"),
+            ),
+            h(
+              "div",
+              { className: "step-content" },
+              h("div", { className: "step-title" }, "편집 및 관리"),
+              h(
+                "div",
+                { className: "step-desc" },
+                "새로운 태그를 추가하거나 이름을 변경하고, 드래그 앤 드롭으로 자유롭게 순서를 변경할 수 있어요.",
+              ),
+            ),
+          ),
+          // Step 3
+          h(
+            "div",
+            { className: "empty-state-step" },
+            h(
+              "div",
+              { className: "step-icon" },
+              h("span", { className: "material-symbols-rounded" }, "lightbulb"),
+            ),
+            h(
+              "div",
+              { className: "step-content" },
+              h("div", { className: "step-title" }, "완벽한 소재명"),
+              h(
+                "div",
+                { className: "step-desc" },
+                "연관된 키워드들을 그룹화하여 일관성 있는 완벽한 광고 소재명을 만들어보세요.",
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
   switch (selectedNode.type) {
@@ -1044,37 +1342,37 @@ function ConceptGroupEditor(gi) {
               ),
               isEditing
                 ? h("input", {
-                  type: "text",
-                  className: "chip-edit-inp",
-                  value: item,
-                  size: Math.max(4, item.length + 2),
-                  "data-edit-key": key,
-                  "data-edit-orig": item,
-                  "data-edit-type": "concept-group-item",
-                  "data-gi": gi,
-                  "data-ii": ii,
-                })
+                    type: "text",
+                    className: "chip-edit-inp",
+                    value: item,
+                    size: Math.max(4, item.length + 2),
+                    "data-edit-key": key,
+                    "data-edit-orig": item,
+                    "data-edit-type": "concept-group-item",
+                    "data-gi": gi,
+                    "data-ii": ii,
+                  })
                 : h(
-                  "span",
-                  {
-                    className: "chip-text",
-                    "data-action": "edit-chip",
-                    "data-chip-key": key,
-                  },
-                  item,
-                ),
+                    "span",
+                    {
+                      className: "chip-text",
+                      "data-action": "edit-chip",
+                      "data-chip-key": key,
+                    },
+                    item,
+                  ),
               data.concept.subConcepts[item]?.length > 0
                 ? h(
-                  "button",
-                  {
-                    className: "has-sub-badge",
-                    type: "button",
-                    "data-action": "select-concept-item",
-                    "data-ci": item,
-                    "data-gi": gi,
-                  },
-                  "세부",
-                )
+                    "button",
+                    {
+                      className: "has-sub-badge",
+                      type: "button",
+                      "data-action": "select-concept-item",
+                      "data-ci": item,
+                      "data-gi": gi,
+                    },
+                    "세부",
+                  )
                 : null,
               ChipDelBtn("del-concept-group-item", {
                 "data-gi": gi,
@@ -1161,104 +1459,104 @@ function ConceptItemEditor(ci, gi) {
         { className: "ci-card-body" },
         groups.length === 0
           ? h(
-            "p",
-            { className: "editor-hint" },
-            "아래 버튼으로 첫 세부 컨셉 그룹을 추가하세요.",
-          )
+              "p",
+              { className: "editor-hint" },
+              "아래 버튼으로 첫 세부 컨셉 그룹을 추가하세요.",
+            )
           : h(
-            "div",
-            { className: "ci-sub-grid" },
-            ...groups.map((group, scg) => {
-              const sgKey = `sg:${ci}:${scg}`;
-              const sgDragging = dragSrc?.key === sgKey;
-              const sgDragOver =
-                !sgDragging &&
-                dragOverIdx === scg &&
-                dragSrc?.list === `sg:${ci}`;
-              return h(
-                "div",
-                {
-                  className:
-                    "group-box" +
-                    (sgDragging ? " chip-dragging" : "") +
-                    (sgDragOver ? " group-drag-over" : ""),
-                  draggable: true,
-                  "data-chip-key": sgKey,
-                  "data-chip-list": `sg:${ci}`,
-                  "data-chip-idx": scg,
-                  "data-chip-type": "subconcept-group",
-                  "data-ci": ci,
-                  "data-scg": scg,
-                },
-                h(
+              "div",
+              { className: "ci-sub-grid" },
+              ...groups.map((group, scg) => {
+                const sgKey = `sg:${ci}:${scg}`;
+                const sgDragging = dragSrc?.key === sgKey;
+                const sgDragOver =
+                  !sgDragging &&
+                  dragOverIdx === scg &&
+                  dragSrc?.list === `sg:${ci}`;
+                return h(
                   "div",
-                  { className: "group-header" },
-                  h(
-                    "span",
-                    {
-                      className:
-                        "material-symbols-rounded chip-handle group-drag-handle",
-                    },
-                    "drag_indicator",
-                  ),
-                  h("input", {
-                    type: "text",
-                    className: "group-label-inp",
-                    value: group.label,
-                    placeholder: "세부 컨셉 그룹명",
-                    "data-orig": group.label,
-                    "data-label": "subconcept-group",
+                  {
+                    className:
+                      "group-box" +
+                      (sgDragging ? " chip-dragging" : "") +
+                      (sgDragOver ? " group-drag-over" : ""),
+                    draggable: true,
+                    "data-chip-key": sgKey,
+                    "data-chip-list": `sg:${ci}`,
+                    "data-chip-idx": scg,
+                    "data-chip-type": "subconcept-group",
                     "data-ci": ci,
                     "data-scg": scg,
-                  }),
-                  DeleteBtn(
-                    "del-subconcept-group",
-                    { "data-ci": ci, "data-scg": scg },
-                    "btn-danger-xs",
-                    h(
-                      "span",
-                      { className: "material-symbols-rounded" },
-                      "delete",
-                    ),
-                    "세부 컨셉 삭제",
-                  ),
-                ),
-                h(
-                  "div",
-                  { className: "group-items" },
+                  },
                   h(
                     "div",
-                    { className: "chip-wrap" },
-                    ...group.items.map((item, scgi) =>
-                      Chip(
-                        item,
-                        "del-subconcept-group-item",
+                    { className: "group-header" },
+                    h(
+                      "span",
+                      {
+                        className:
+                          "material-symbols-rounded chip-handle group-drag-handle",
+                      },
+                      "drag_indicator",
+                    ),
+                    h("input", {
+                      type: "text",
+                      className: "group-label-inp",
+                      value: group.label,
+                      placeholder: "세부 컨셉 그룹명",
+                      "data-orig": group.label,
+                      "data-label": "subconcept-group",
+                      "data-ci": ci,
+                      "data-scg": scg,
+                    }),
+                    DeleteBtn(
+                      "del-subconcept-group",
+                      { "data-ci": ci, "data-scg": scg },
+                      "btn-danger-xs",
+                      h(
+                        "span",
+                        { className: "material-symbols-rounded" },
+                        "delete",
+                      ),
+                      "세부 컨셉 삭제",
+                    ),
+                  ),
+                  h(
+                    "div",
+                    { className: "group-items" },
+                    h(
+                      "div",
+                      { className: "chip-wrap" },
+                      ...group.items.map((item, scgi) =>
+                        Chip(
+                          item,
+                          "del-subconcept-group-item",
+                          {
+                            "data-ci": ci,
+                            "data-scg": scg,
+                            "data-scgi": scgi,
+                          },
+                          {
+                            key: `s:${ci}:${scg}:${scgi}`,
+                            list: `s:${ci}:${scg}`,
+                            idx: scgi,
+                            type: "subconcept-group-item",
+                          },
+                        ),
+                      ),
+                      AddInput(
+                        "subconcept-group-item",
                         {
                           "data-ci": ci,
                           "data-scg": scg,
-                          "data-scgi": scgi,
                         },
-                        {
-                          key: `s:${ci}:${scg}:${scgi}`,
-                          list: `s:${ci}:${scg}`,
-                          idx: scgi,
-                          type: "subconcept-group-item",
-                        },
+                        "세부 컨셉 추가",
                       ),
                     ),
-                    AddInput(
-                      "subconcept-group-item",
-                      {
-                        "data-ci": ci,
-                        "data-scg": scg,
-                      },
-                      "세부 컨셉 추가",
-                    ),
                   ),
-                ),
-              );
-            }),
-          ),
+                );
+              }),
+            ),
         h(
           "button",
           {
@@ -1423,7 +1721,7 @@ function App() {
       {
         id: "admin-app-inner",
         onClick: onAppClick,
-        onKeydown: onAppKeydown,
+        onKeyDown: onAppKeyDown,
         onChange: onAppChange,
         onInput: onAppInput,
         onFocusout: onAppFocusOut,
