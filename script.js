@@ -113,9 +113,9 @@ function parseMixedOptions(def) {
     grouped.length === 0
       ? null
       : [
-          ...(standalone.length ? [{ label: null, items: standalone }] : []),
-          ...grouped,
-        ];
+        ...(standalone.length ? [{ label: null, items: standalone }] : []),
+        ...grouped,
+      ];
   return { flat, groups };
 }
 
@@ -147,7 +147,13 @@ const URL_FIELDS = [
 const FIELD_DEFAULTS = { version: "v1", date: todayYYMMDD() };
 
 function stateFromURL() {
-  const p = new URLSearchParams(location.search);
+  let search = location.search;
+  // If URL has no params, fall back to last saved state from localStorage
+  if (!search) {
+    const saved = localStorage.getItem(INDEX_STATE_KEY);
+    if (saved) search = "?" + saved;
+  }
+  const p = new URLSearchParams(search);
   const s = { openDropdown: null };
   URL_FIELDS.forEach((k) => {
     s[k] = p.get(k) || FIELD_DEFAULTS[k] || "";
@@ -156,6 +162,8 @@ function stateFromURL() {
   return s;
 }
 
+const INDEX_STATE_KEY = "ad-gen-index-state";
+
 function syncStateToURL(s) {
   const p = new URLSearchParams();
   URL_FIELDS.forEach((k) => {
@@ -163,6 +171,8 @@ function syncStateToURL(s) {
   });
   const qs = p.toString();
   history.replaceState(null, "", qs ? `?${qs}` : location.pathname);
+  // Persist to localStorage so navigating away and back restores this state
+  localStorage.setItem(INDEX_STATE_KEY, qs || "");
 }
 
 const state = createStore(stateFromURL());
@@ -887,7 +897,7 @@ function buildName(fields) {
   if (allEmpty) {
     return {
       status: "waiting",
-      message: "소재명이 여기에 나타나요. 항목을 채워보세요!",
+      message: "소재명이 여기에 나타나요. 태그를 채워보세요!",
     };
   }
 
@@ -902,18 +912,18 @@ function buildName(fields) {
   // State 3: Missing required fields
   const requiredFields = hasSubCategory
     ? [
-        { value: format, label: "포맷" },
-        { value: product, label: "제품" },
-        { value: concept, label: "소재 컨셉" },
-        { value: subConcept, label: "세부 컨셉" },
-        { value: identifier, label: "소재 별명" },
-      ]
+      { value: format, label: "포맷" },
+      { value: product, label: "제품" },
+      { value: concept, label: "소재 컨셉" },
+      { value: subConcept, label: "세부 컨셉" },
+      { value: identifier, label: "소재 별명" },
+    ]
     : [
-        { value: format, label: "포맷" },
-        { value: product, label: "제품" },
-        { value: concept, label: "소재 컨셉" },
-        { value: identifier, label: "소재 별명" },
-      ];
+      { value: format, label: "포맷" },
+      { value: product, label: "제품" },
+      { value: concept, label: "소재 컨셉" },
+      { value: identifier, label: "소재 별명" },
+    ];
 
   const missing = requiredFields.filter((f) => !f.value).map((f) => f.label);
   if (missing.length > 0) {
@@ -962,10 +972,10 @@ function renderOption(
     h("span", { className: "option-label" }, opt),
     subOptions && subOptions.has(opt)
       ? h(
-          "span",
-          { className: "material-symbols-rounded option-sub-icon" },
-          "tune",
-        )
+        "span",
+        { className: "material-symbols-rounded option-sub-icon" },
+        "tune",
+      )
       : null,
     h("span", { className: "material-symbols-rounded check-icon" }, "check"),
   );
@@ -1057,80 +1067,80 @@ const CustomDropdown = (props) => {
       },
       searchable
         ? h(
-            "div",
-            { className: "dropdown-search" },
-            h(
-              "span",
-              { className: "material-symbols-rounded dropdown-search-icon" },
-              "search",
-            ),
-            h("input", {
-              className: "dropdown-search-input",
-              type: "text",
-              placeholder: "검색",
-              value: filterText,
-              onInput: onFilterInput,
-            }),
-          )
+          "div",
+          { className: "dropdown-search" },
+          h(
+            "span",
+            { className: "material-symbols-rounded dropdown-search-icon" },
+            "search",
+          ),
+          h("input", {
+            className: "dropdown-search-input",
+            type: "text",
+            placeholder: "검색",
+            value: filterText,
+            onInput: onFilterInput,
+          }),
+        )
         : null,
       ...(groups
         ? (() => {
-            let optIdx = 0;
-            let anyVisible = false;
-            const rendered = groups.flatMap(({ label, items }) => {
-              const groupMatch = labelMatchesFilter(label, filterText);
-              const visibleItems =
-                filterText && !groupMatch
-                  ? items.filter((opt) => matchesFilter(opt, filterText))
-                  : items;
-              if (visibleItems.length === 0) return [];
-              anyVisible = true;
-              return [
-                ...(label
-                  ? [h("div", { className: "dropdown-group-label" }, label)]
-                  : []),
-                ...visibleItems.map((opt) => {
-                  const isHighlighted = optIdx === highlightIdx;
-                  optIdx++;
-                  return renderOption(
-                    fieldName,
-                    opt,
-                    value,
-                    subOptions,
-                    isHighlighted,
-                  );
-                }),
-              ];
-            });
+          let optIdx = 0;
+          let anyVisible = false;
+          const rendered = groups.flatMap(({ label, items }) => {
+            const groupMatch = labelMatchesFilter(label, filterText);
+            const visibleItems =
+              filterText && !groupMatch
+                ? items.filter((opt) => matchesFilter(opt, filterText))
+                : items;
+            if (visibleItems.length === 0) return [];
+            anyVisible = true;
             return [
-              ...rendered,
-              searchable && filterText && !anyVisible
-                ? h(
-                    "div",
-                    { className: "dropdown-no-results" },
-                    "검색 결과가 없어요",
-                  )
-                : null,
+              ...(label
+                ? [h("div", { className: "dropdown-group-label" }, label)]
+                : []),
+              ...visibleItems.map((opt) => {
+                const isHighlighted = optIdx === highlightIdx;
+                optIdx++;
+                return renderOption(
+                  fieldName,
+                  opt,
+                  value,
+                  subOptions,
+                  isHighlighted,
+                );
+              }),
             ];
-          })()
-        : [
-            ...filteredOptions.map((opt, i) =>
-              renderOption(
-                fieldName,
-                opt,
-                value,
-                subOptions,
-                i === highlightIdx,
-              ),
-            ),
-            searchable && filterText && filteredOptions.length === 0
+          });
+          return [
+            ...rendered,
+            searchable && filterText && !anyVisible
               ? h(
-                  "div",
-                  { className: "dropdown-no-results" },
-                  "검색 결과가 없어요",
-                )
+                "div",
+                { className: "dropdown-no-results" },
+                "검색 결과가 없어요",
+              )
               : null,
-          ]),
+          ];
+        })()
+        : [
+          ...filteredOptions.map((opt, i) =>
+            renderOption(
+              fieldName,
+              opt,
+              value,
+              subOptions,
+              i === highlightIdx,
+            ),
+          ),
+          searchable && filterText && filteredOptions.length === 0
+            ? h(
+              "div",
+              { className: "dropdown-no-results" },
+              "검색 결과가 없어요",
+            )
+            : null,
+        ]),
     ),
   );
 };
@@ -1274,35 +1284,35 @@ const InputField = (props) => {
       }),
       suggestions && suggestions.length > 0
         ? h(
-            "div",
-            {
-              className: "suggestions-menu",
-              onMouseDown: handleSuggestionMouseDown,
-            },
-            ...suggestions.map((s, i) =>
+          "div",
+          {
+            className: "suggestions-menu",
+            onMouseDown: handleSuggestionMouseDown,
+          },
+          ...suggestions.map((s, i) =>
+            h(
+              "div",
+              {
+                className:
+                  i === highlightIdx
+                    ? "suggestion-item highlighted"
+                    : "suggestion-item",
+                "data-value": s,
+              },
+              h("span", { className: "suggestion-text" }, s),
               h(
-                "div",
+                "button",
                 {
-                  className:
-                    i === highlightIdx
-                      ? "suggestion-item highlighted"
-                      : "suggestion-item",
-                  "data-value": s,
+                  className: "suggestion-remove",
+                  type: "button",
+                  tabIndex: -1,
+                  title: "기록에서 삭제",
                 },
-                h("span", { className: "suggestion-text" }, s),
-                h(
-                  "button",
-                  {
-                    className: "suggestion-remove",
-                    type: "button",
-                    tabIndex: -1,
-                    title: "기록에서 삭제",
-                  },
-                  h("span", { className: "material-symbols-rounded" }, "close"),
-                ),
+                h("span", { className: "material-symbols-rounded" }, "close"),
               ),
             ),
-          )
+          ),
+        )
         : null,
     ),
   );
@@ -1318,7 +1328,7 @@ const OutputDisplay = (props) => {
     return h(
       "div",
       { className: "output output--missing" },
-      h("div", { className: "output-missing-label" }, "다음 항목을 채워주세요"),
+      h("div", { className: "output-missing-label" }, "다음 태그를 채워주세요"),
       h(
         "div",
         { className: "output-missing-chips" },
@@ -1626,54 +1636,54 @@ const DatePickerField = ({ value }) => {
       ),
       datePickerOpen
         ? h(
+          "div",
+          { className: "datepicker-panel" },
+          h(
             "div",
-            { className: "datepicker-panel" },
+            { className: "dp-header" },
             h(
-              "div",
-              { className: "dp-header" },
-              h(
-                "button",
-                {
-                  className: "dp-nav-btn",
-                  type: "button",
-                  onClick: handleDatePickerPrevMonth,
-                  tabIndex: -1,
-                },
-                h(
-                  "span",
-                  { className: "material-symbols-rounded" },
-                  "chevron_left",
-                ),
-              ),
+              "button",
+              {
+                className: "dp-nav-btn",
+                type: "button",
+                onClick: handleDatePickerPrevMonth,
+                tabIndex: -1,
+              },
               h(
                 "span",
-                { className: "dp-month-label" },
-                `${datePickerViewYear}년 ${DP_MONTH_NAMES[datePickerViewMonth]}`,
-              ),
-              h(
-                "button",
-                {
-                  className: "dp-nav-btn",
-                  type: "button",
-                  onClick: handleDatePickerNextMonth,
-                  tabIndex: -1,
-                },
-                h(
-                  "span",
-                  { className: "material-symbols-rounded" },
-                  "chevron_right",
-                ),
+                { className: "material-symbols-rounded" },
+                "chevron_left",
               ),
             ),
             h(
-              "div",
-              { className: "dp-grid", onClick: handleDatePickerGridClick },
-              ...DP_DAY_NAMES.map((d) =>
-                h("div", { className: "dp-weekday" }, d),
-              ),
-              ...cells,
+              "span",
+              { className: "dp-month-label" },
+              `${datePickerViewYear}년 ${DP_MONTH_NAMES[datePickerViewMonth]}`,
             ),
-          )
+            h(
+              "button",
+              {
+                className: "dp-nav-btn",
+                type: "button",
+                onClick: handleDatePickerNextMonth,
+                tabIndex: -1,
+              },
+              h(
+                "span",
+                { className: "material-symbols-rounded" },
+                "chevron_right",
+              ),
+            ),
+          ),
+          h(
+            "div",
+            { className: "dp-grid", onClick: handleDatePickerGridClick },
+            ...DP_DAY_NAMES.map((d) =>
+              h("div", { className: "dp-weekday" }, d),
+            ),
+            ...cells,
+          ),
+        )
         : null,
     ),
   );
@@ -1852,24 +1862,24 @@ function App() {
         ),
         anyFilled
           ? h(
-              "div",
-              { className: "reset-row" },
+            "div",
+            { className: "reset-row" },
+            h(
+              "button",
+              {
+                className: "reset-btn",
+                onClick: handleResetAll,
+                type: "button",
+                tabIndex: -1,
+              },
               h(
-                "button",
-                {
-                  className: "reset-btn",
-                  onClick: handleResetAll,
-                  type: "button",
-                  tabIndex: -1,
-                },
-                h(
-                  "span",
-                  { className: "material-symbols-rounded" },
-                  "restart_alt",
-                ),
-                "초기화",
+                "span",
+                { className: "material-symbols-rounded" },
+                "restart_alt",
               ),
-            )
+              "초기화",
+            ),
+          )
           : null,
         h("div", { className: "divider" }),
         result.status === "success" ? h(ShareSection, {}) : null,
@@ -1969,5 +1979,7 @@ fetch("data.json")
       syncStateToURL(state.get());
       root.render(App());
     });
+    // Sync restored state to URL immediately (handles localStorage restore with no URL params)
+    syncStateToURL(state.get());
     root.render(App());
   });

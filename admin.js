@@ -6,6 +6,7 @@
 // ─── State ───────────────────────────────────────────────────
 
 let data = null;
+let originalData = null;
 let dirty = false;
 let selectedNode = null;
 // selectedNode shapes:
@@ -22,19 +23,24 @@ let submitting = false; // fetch in progress
 let submitError = null; // error string from last failed submit
 let bulkPrompt = null; // { active: boolean, parts: string[], label: string, dupes: Set<number> }
 let dupeWarning = null; // the duplicate value string when single chip input matches an existing item
+let historyOpen = false; // whether the history side panel is open
+let toastMsg = null; // toast notification message string, null when hidden
+let lastActionTime = Date.now(); // time of the most recent change
 
 // ─── Undo ─────────────────────────────────────────────────────
 const undoStack = [];
 const MAX_UNDO = 50;
+let serverLoadTime = Date.now();
 
-function pushUndo() {
-  undoStack.push(JSON.parse(JSON.stringify(data)));
+function pushUndo(desc) {
+  undoStack.push({ state: JSON.parse(JSON.stringify(data)), node: selectedNode ? { ...selectedNode } : null, desc, time: Date.now() });
   if (undoStack.length > MAX_UNDO) undoStack.shift();
 }
 
 function applyUndo() {
   if (!undoStack.length) return;
-  data = undoStack.pop();
+  const item = undoStack.pop();
+  data = item.state;
   // Validate selectedNode is still valid in restored data
   if (selectedNode) {
     const n = selectedNode;
@@ -153,7 +159,7 @@ function getDeleteTypeLabel(action) {
     case "del-subconcept-group-item":
       return "세부 컨셉";
     default:
-      return "항목";
+      return "태그";
   }
 }
 
@@ -168,7 +174,7 @@ function getLabelForType(type) {
     case "subconcept-group-item":
       return "세부 컨셉";
     default:
-      return "항목";
+      return "태그";
   }
 }
 
@@ -182,8 +188,21 @@ function rerender() {
 }
 
 function markDirty() {
-  dirty = true;
-  document.getElementById("submit-btn").classList.add("dirty");
+  const isChanged = JSON.stringify(data) !== JSON.stringify(originalData);
+  dirty = isChanged;
+  lastActionTime = Date.now();
+
+  const submitBtn = document.getElementById("submit-btn");
+  if (isChanged) {
+    document.title = "* 데이터 편집 — APPSILON";
+    submitBtn?.classList.add("dirty");
+    localStorage.setItem("ad-name-generator-draft", JSON.stringify({ version: 2, data, undoStack }));
+  } else {
+    document.title = "데이터 편집 — APPSILON";
+    submitBtn?.classList.remove("dirty");
+    localStorage.removeItem("ad-name-generator-draft");
+  }
+
   rerender();
 }
 
@@ -195,7 +214,28 @@ function selectNode(node) {
 // ─── Delete execution (called after modal confirms) ──────────
 
 function executeDelete(action, ds) {
-  pushUndo();
+  const subject = getDeleteSubject(action, ds);
+  const typeLabel = getDeleteTypeLabel(action);
+
+  let prefix = "";
+  if (action === "del-product-group-item") {
+    const pLabel = data.product[+ds.gi]?.label;
+    if (pLabel) prefix = `'${pLabel}'에서 `;
+  } else if (action === "del-concept-group-item") {
+    const cLabel = data.concept.options[+ds.gi]?.label;
+    if (cLabel) prefix = `'${cLabel}'에서 `;
+  } else if (action === "del-subconcept-group-item") {
+    const scgLabel = data.concept.subConcepts[ds.ci]?.[+ds.scg]?.label;
+    if (ds.ci && scgLabel) prefix = `'${ds.ci}' > '${scgLabel}'에서 `;
+  } else if (action === "del-subconcept-group") {
+    if (ds.ci) prefix = `'${ds.ci}'에서 `;
+  }
+
+  if (subject === "") {
+    if (undoStack.length > 0) undoStack.pop();
+  } else {
+    pushUndo(`${prefix}${typeLabel} '${subject}' 삭제`);
+  }
   switch (action) {
     case "del-format":
       data.format.splice(+ds.fi, 1);
@@ -258,21 +298,41 @@ function executeDelete(action, ds) {
 
 // ─── Stable event handlers ───────────────────────────────────
 
+const getUniqueName = (baseName, existingNames) => {
+  let name = baseName;
+  let counter = 1;
+  while (existingNames.includes(name)) {
+    name = `${baseName} ${counter}`;
+    counter++;
+  }
+  return name;
+};
+
 const onAppClick = function (e) {
+  let target = e.target;
+  if (target && target.nodeType === 3) target = target.parentNode;
+
   // Backdrop click dismisses modals
-  if (confirmPending && !e.target.closest(".modal-dialog")) {
+  if (confirmPending && !target.closest(".modal-dialog")) {
     confirmPending = null;
     rerender();
     return;
   }
-  if (submitPending && !submitting && !e.target.closest(".modal-dialog")) {
+  if (submitPending && !submitting && !target.closest(".modal-dialog")) {
     submitPending = false;
     submitError = null;
     rerender();
     return;
   }
 
-  const btn = e.target.closest("[data-action]");
+  // Close history panel if clicking outside of it, and not interacting with a modal
+  if (historyOpen && !target.closest(".history-panel") && !target.closest('[data-action="toggle-history"]') && !target.closest(".modal-dialog")) {
+    historyOpen = false;
+    rerender();
+    return;
+  }
+
+  const btn = target.closest("[data-action]");
   if (!btn) return;
   const ds = btn.dataset;
 
@@ -282,10 +342,11 @@ const onAppClick = function (e) {
     editingChip = null;
     bulkPrompt = null;
     dupeWarning = null;
-    if (wasEditing) {
-      // Chip was being edited — intent is clear, skip confirmation
+    if (wasEditing || ["del-product-group-item", "del-concept-group-item", "del-subconcept-group-item"].includes(ds.action)) {
+      // Chip was being edited, or it's just a single tag item — intent is clear or easy to recover, skip confirmation
       executeDelete(ds.action, { ...ds });
     } else {
+      // Bigger deletions (Groups, Brands) still need confirmation
       confirmPending = { action: ds.action, ds: { ...ds } };
       rerender();
     }
@@ -293,6 +354,14 @@ const onAppClick = function (e) {
   }
 
   switch (ds.action) {
+
+    case "submit-data":
+      if (!dirty) return;
+      submitPending = true;
+      submitError = null;
+      rerender();
+      break;
+
     case "confirm-bulk-add": {
       bulkPrompt = null;
       const editingInp = document.querySelector(
@@ -316,6 +385,50 @@ const onAppClick = function (e) {
       }, 0);
       break;
 
+    case "go-home":
+      selectNode(null);
+      break;
+
+    case "toggle-history":
+      historyOpen = !historyOpen;
+      rerender();
+      break;
+
+    case "restore-history":
+      confirmPending = { action: "restore-history", ds: { ...ds } };
+      rerender();
+      break;
+
+    case "confirm-restore-history": {
+      const targetIdx = +ds.idx;
+      if (targetIdx === 0) {
+        // Restore to original server data (phantom base)
+        data = JSON.parse(JSON.stringify(originalData));
+        undoStack.length = 0;
+        serverLoadTime = Date.now();
+      } else {
+        // Offset by 1 since phantom base is idx=0
+        const target = undoStack[targetIdx - 1];
+        undoStack.length = targetIdx - 1;
+        data = target.state;
+        selectedNode = target.node ?? null;
+      }
+
+      // Validate selectedNode
+      if (selectedNode) {
+        const n = selectedNode;
+        if (n.type === "product-group" && !data.product[n.gi]) selectedNode = null;
+        else if (n.type === "concept-group" && !data.concept.options[n.gi]) selectedNode = null;
+        else if (n.type === "concept-item" && !data.concept.options[n.gi]?.items.includes(n.ci)) selectedNode = null;
+      }
+      dupeWarning = null;
+      bulkPrompt = null;
+      confirmPending = null;
+      historyOpen = false;
+      markDirty();
+      break;
+    }
+
     case "select-product-group":
       selectNode({ type: "product-group", gi: +ds.gi });
       break;
@@ -331,10 +444,14 @@ const onAppClick = function (e) {
       selectNode({ type: "concept-item", ci: ds.ci, gi: +ds.gi });
       break;
 
+
+
     // ── Product ──
     case "add-product-group": {
-      pushUndo();
-      data.product.push({ label: "새 브랜드", items: [] });
+      const existing = data.product.map(p => p.label);
+      const newName = getUniqueName("새 브랜드", existing);
+      pushUndo(`브랜드 '${newName}' 추가`);
+      data.product.push({ label: newName, items: [] });
       selectNode({ type: "product-group", gi: data.product.length - 1 });
       markDirty();
       break;
@@ -342,8 +459,10 @@ const onAppClick = function (e) {
 
     // ── Concept groups ──
     case "add-concept-group": {
-      pushUndo();
-      data.concept.options.push({ label: "새 그룹", items: [] });
+      const existing = data.concept.options.map(c => c.label);
+      const newName = getUniqueName("새 그룹", existing);
+      pushUndo(`컨셉 그룹 '${newName}' 추가`);
+      data.concept.options.push({ label: newName, items: [] });
       const newGi = data.concept.options.length - 1;
       selectNode({ type: "concept-group", gi: newGi });
       markDirty();
@@ -351,14 +470,19 @@ const onAppClick = function (e) {
     }
 
     // ── Sub-concepts ──
-    case "add-subconcept-group":
-      pushUndo();
-      if (!(ds.ci in data.concept.subConcepts))
+    case "add-subconcept-group": {
+      if (!(ds.ci in data.concept.subConcepts)) {
         data.concept.subConcepts[ds.ci] = [];
-      data.concept.subConcepts[ds.ci].push({ label: "새 그룹", items: [] });
+      }
+      const existing = data.concept.subConcepts[ds.ci].map(scg => scg.label);
+      const newName = getUniqueName("새 그룹", existing);
+      pushUndo(`'${ds.ci}'에 세부 컨셉 그룹 '${newName}' 추가`);
+      data.concept.subConcepts[ds.ci].push({ label: newName, items: [] });
       markDirty();
       break;
+    }
 
+    case "cancel-modal":
     case "cancel-delete":
       confirmPending = null;
       rerender();
@@ -448,19 +572,21 @@ const onAppChange = function (e) {
     flashError(el);
     return;
   }
-  pushUndo();
-
   switch (ds.label) {
     case "product-group":
+      pushUndo(`브랜드명 변경 '${ds.orig}' → '${v}'`);
       data.product[+ds.gi].label = v;
       break;
     case "concept-group":
+      pushUndo(`컨셉 그룹명 변경 '${ds.orig}' → '${v}'`);
       data.concept.options[+ds.gi].label = v;
       break;
     case "subconcept-group":
+      pushUndo(`세부 컨셉 그룹명 변경 '${ds.orig}' → '${v}'`);
       data.concept.subConcepts[ds.ci][+ds.scg].label = v;
       break;
     case "concept-item": {
+      pushUndo(`컨셉명 변경 '${ds.orig}' → '${v}'`);
       const gi = +ds.gi;
       const oldCi = ds.ci;
       const idx = data.concept.options[gi].items.indexOf(oldCi);
@@ -491,7 +617,27 @@ function commitAdd(ds, v) {
     if (parts.length === 0) return;
   }
 
-  pushUndo();
+  const typeLabel = getLabelForType(ds.add);
+  let prefix = "";
+  if (ds.add === "product-group-item") {
+    const pLabel = data.product[+ds.gi]?.label;
+    if (pLabel) prefix = `'${pLabel}'에 `;
+  } else if (ds.add === "concept-group-item") {
+    const cLabel = data.concept.options[+ds.gi]?.label;
+    if (cLabel) prefix = `'${cLabel}'에 `;
+  } else if (ds.add === "subconcept-group-item") {
+    const scgLabel = data.concept.subConcepts[ds.ci]?.[+ds.scg]?.label;
+    if (ds.ci && scgLabel) prefix = `'${ds.ci}' > '${scgLabel}'에 `;
+  }
+  let initialDesc = "";
+  if (parts.length > 1) {
+    initialDesc = `${prefix}'${typeLabel}' ${parts.length}개 추가`;
+  } else if (parts[0] === "") {
+    initialDesc = `${prefix}새 '${typeLabel}' 작성 중...`;
+  } else {
+    initialDesc = `${prefix}'${typeLabel}' 추가`;
+  }
+  pushUndo(initialDesc);
   let newKey = null;
 
   switch (ds.add) {
@@ -558,7 +704,11 @@ function saveChipEdit(inp, allowBulk = true) {
 
   // Empty → delete chip
   if (parts.length === 0) {
-    if (editOrig !== "") pushUndo();
+    if (editOrig !== "") {
+      pushUndo(`${getLabelForType(editType)} '${editOrig}' 삭제`);
+    } else if (undoStack.length > 0) {
+      undoStack.pop(); // Revert the empty chip snapshot from commitAdd
+    }
     switch (editType) {
       case "product-group-item":
         data.product[+inp.dataset.gi].items.splice(+inp.dataset.ii, 1);
@@ -598,8 +748,27 @@ function saveChipEdit(inp, allowBulk = true) {
     return;
   }
 
-  // New chips already have a snapshot from commitAdd; only push for editing existing chips
-  if (editOrig !== "") pushUndo();
+  // New chips already have a snapshot from commitAdd; update its description now that we know the final text
+  if (editOrig !== "") {
+    pushUndo(`${getLabelForType(editType)}명 변경 '${editOrig}' → '${parts[0]}'`);
+  } else if (undoStack.length > 0) {
+    const typeLabel = getLabelForType(editType);
+    let prefix = "";
+    if (editType === "product-group-item") {
+      const pLabel = data.product[+inp.dataset.gi]?.label;
+      if (pLabel) prefix = `'${pLabel}'에 `;
+    } else if (editType === "concept-group-item") {
+      const cLabel = data.concept.options[+inp.dataset.gi]?.label;
+      if (cLabel) prefix = `'${cLabel}'에 `;
+    } else if (editType === "subconcept-group-item") {
+      const scgLabel = data.concept.subConcepts[inp.dataset.ci]?.[+inp.dataset.scg]?.label;
+      if (inp.dataset.ci && scgLabel) prefix = `'${inp.dataset.ci}' > '${scgLabel}'에 `;
+    }
+    undoStack[undoStack.length - 1].desc = parts.length > 1
+      ? `${prefix}'${typeLabel}' ${parts.length}개 추가`
+      : `${prefix}'${typeLabel}' '${parts[0]}' 추가`;
+    undoStack[undoStack.length - 1].time = Date.now();
+  }
 
   // Save primary value + inject subsequent valid parts
   switch (editType) {
@@ -687,7 +856,7 @@ const onAppInput = function (e) {
       }
       const newDupe =
         parts.length === 1 &&
-        isDuplicateChip(inp.dataset.editType, parts[0], inp.dataset)
+          isDuplicateChip(inp.dataset.editType, parts[0], inp.dataset)
           ? parts[0]
           : null;
       if (newDupe !== dupeWarning) {
@@ -719,7 +888,9 @@ const onAppFocusOut = function (e) {
 };
 
 const onAppDragStart = function (e) {
-  const chip = e.target.closest("[data-chip-key]");
+  let target = e.target;
+  if (target && target.nodeType === 3) target = target.parentNode;
+  const chip = target.closest("[data-chip-key]");
   if (!chip) return;
   dragSrc = {
     key: chip.dataset.chipKey,
@@ -742,7 +913,9 @@ const onAppDragOver = function (e) {
   if (!dragSrc) return;
   e.preventDefault();
   e.dataTransfer.dropEffect = "move";
-  const chip = e.target.closest("[data-chip-key]");
+  let target = e.target;
+  if (target && target.nodeType === 3) target = target.parentNode;
+  const chip = target.closest("[data-chip-key]");
   if (!chip || chip.dataset.chipList !== dragSrc.list) {
     if (dragOverIdx !== null) {
       dragOverIdx = null;
@@ -765,10 +938,19 @@ const onAppDrop = function (e) {
     rerender();
     return;
   }
+  let target = e.target;
+  if (target && target.nodeType === 3) target = target.parentNode;
   const srcIdx = dragSrc.idx;
   const tgtIdx = dragOverIdx;
+  const srcType = dragSrc.type;
   let items;
-  switch (dragSrc.type) {
+  switch (srcType) {
+    case "product-group":
+      items = data.product;
+      break;
+    case "concept-group":
+      items = data.concept.options;
+      break;
     case "product-group-item":
       items = data.product[dragSrc.gi].items;
       break;
@@ -785,9 +967,57 @@ const onAppDrop = function (e) {
   dragSrc = null;
   dragOverIdx = null;
   if (items) {
-    pushUndo();
+    let typeName = "항목";
+    if (items === data.product) typeName = "브랜드";
+    else if (items === data.concept.options) typeName = "컨셉 그룹";
+    else if (srcType === "product-group-item") typeName = "제품";
+    else if (srcType === "concept-group-item") typeName = "컨셉";
+    else if (srcType === "subconcept-group-item") typeName = "세부 컨셉";
+    else if (srcType === "subconcept-group") typeName = "세부 컨셉 그룹";
+
+    pushUndo(`${typeName} 순서 변경`);
     const [moved] = items.splice(srcIdx, 1);
-    items.splice(tgtIdx > srcIdx ? tgtIdx - 1 : tgtIdx, 0, moved);
+    const spliceIdx = tgtIdx;
+    items.splice(spliceIdx, 0, moved);
+
+    // If we reordered concept groups, the openConceptGroups indexes must be updated
+    if (items === data.concept.options) {
+      const oldKeys = Array.from(openConceptGroups);
+      openConceptGroups.clear();
+      oldKeys.forEach((key) => {
+        const k = Number(key);
+        if (k === srcIdx) {
+          openConceptGroups.add(String(spliceIdx));
+        } else if (srcIdx < k && k <= spliceIdx) {
+          openConceptGroups.add(String(k - 1));
+        } else if (spliceIdx <= k && k < srcIdx) {
+          openConceptGroups.add(String(k + 1));
+        } else {
+          openConceptGroups.add(key);
+        }
+      });
+
+      if (selectedNode?.type === "concept-group" || selectedNode?.type === "concept-item") {
+        if (selectedNode.gi === srcIdx) {
+          selectedNode.gi = spliceIdx;
+        } else if (srcIdx < selectedNode.gi && selectedNode.gi <= spliceIdx) {
+          selectedNode.gi -= 1;
+        } else if (spliceIdx <= selectedNode.gi && selectedNode.gi < srcIdx) {
+          selectedNode.gi += 1;
+        }
+      }
+    } else if (items === data.product) {
+      if (selectedNode?.type === "product-group") {
+        if (selectedNode.gi === srcIdx) {
+          selectedNode.gi = spliceIdx;
+        } else if (srcIdx < selectedNode.gi && selectedNode.gi <= spliceIdx) {
+          selectedNode.gi -= 1;
+        } else if (spliceIdx <= selectedNode.gi && selectedNode.gi < srcIdx) {
+          selectedNode.gi += 1;
+        }
+      }
+    }
+
     markDirty();
   } else rerender();
 };
@@ -835,11 +1065,17 @@ function Chip(text, delAction, delAttrs, opts) {
       ChipDelBtn(delAction, delAttrs),
     );
   }
-  const { key, list, idx, type } = opts;
+  const { key, list, idx, type, className = "chip", extra } = opts;
   const isEditing = editingChip === key;
   const isDragging = dragSrc?.key === key;
   const isDragOver =
     !isDragging && dragOverIdx === idx && dragSrc?.list === list;
+  const isVertical = false; // Chips and concept items are all laid out horizontally
+  const dragDirClass = isDragOver
+    ? idx > dragSrc.idx
+      ? " drag-right"
+      : " drag-left"
+    : "";
 
   const showBulkPrompt = isEditing && bulkPrompt && bulkPrompt.active;
   const showDupeWarning = isEditing && dupeWarning !== null;
@@ -848,10 +1084,11 @@ function Chip(text, delAction, delAttrs, opts) {
     "span",
     {
       className:
-        "chip" +
+        className +
         (isDragging ? " chip-dragging" : "") +
         (isDragOver ? " chip-drag-over" : "") +
-        (isEditing ? " chip-editing" : ""),
+        (isEditing ? " chip-editing" : "") +
+        dragDirClass,
       draggable: !isEditing,
       "data-chip-key": key,
       "data-chip-list": list,
@@ -866,69 +1103,70 @@ function Chip(text, delAction, delAttrs, opts) {
     ),
     isEditing
       ? h("input", {
-          type: "text",
-          className: "chip-edit-inp",
-          value: text,
-          size: Math.max(4, text.length + 2),
-          "data-edit-key": key,
-          "data-edit-orig": text,
-          "data-edit-type": type,
-          ...delAttrs,
-        })
+        type: "text",
+        className: "chip-edit-inp",
+        value: text,
+        size: Math.max(4, text.length + 2),
+        "data-edit-key": key,
+        "data-edit-orig": text,
+        "data-edit-type": type,
+        ...delAttrs,
+      })
       : h(
-          "span",
-          {
-            className: "chip-text",
-            "data-action": "edit-chip",
-            "data-chip-key": key,
-          },
-          text,
-        ),
+        "span",
+        {
+          className: "chip-text",
+          "data-action": "edit-chip",
+          "data-chip-key": key,
+        },
+        text,
+      ),
+    extra || null,
     ChipDelBtn(delAction, delAttrs),
     showBulkPrompt && bulkPrompt.dupes.size === 0
       ? h(
-          "button",
-          {
-            type: "button",
-            className: "bulk-prompt-dropdown",
-            onMousedown: (e) => {
-              e.preventDefault();
-              bulkPrompt = null;
-              const editingInp = document.querySelector(
-                `[data-edit-key="${key}"]`,
-              );
-              if (editingInp) saveChipEdit(editingInp, true);
-            },
+        "button",
+        {
+          type: "button",
+          className: "bulk-prompt-dropdown",
+          onMousedown: (e) => {
+            e.preventDefault();
+            bulkPrompt = null;
+            const editingInp = document.querySelector(
+              `[data-edit-key="${key}"]`,
+            );
+            if (editingInp) saveChipEdit(editingInp, true);
           },
-          h("span", { className: "material-symbols-rounded" }, "library_add"),
-          `${new Set(bulkPrompt.parts).size}개 ${bulkPrompt.label}을 추가할까요?`,
-        )
+        },
+        h("span", { className: "material-symbols-rounded" }, "library_add"),
+        `${new Set(bulkPrompt.parts).size}개 ${bulkPrompt.label}을 추가할까요?`,
+      )
       : showBulkPrompt && bulkPrompt.dupes.size > 0
         ? h(
+          "div",
+          { className: "bulk-prompt-dropdown is-warning" },
+          h("span", { className: "material-symbols-rounded" }, "warning"),
+          `이미 있는 ${bulkPrompt.label}이에요`,
+          h(
+            "span",
+            { className: "bulk-prompt-parts" },
+            ...bulkPrompt.parts
+              .filter((_, i) => bulkPrompt.dupes.has(i))
+              .flatMap((p, i) => [
+                ...(i > 0
+                  ? [h("span", { className: "bulk-prompt-sep" }, "·")]
+                  : []),
+                h("span", { className: "bulk-prompt-part is-dupe" }, p),
+              ]),
+          ),
+        )
+        : showDupeWarning
+          ? h(
             "div",
             { className: "bulk-prompt-dropdown is-warning" },
             h("span", { className: "material-symbols-rounded" }, "warning"),
-            `이미 있는 ${bulkPrompt.label}이에요`,
-            h(
-              "span",
-              { className: "bulk-prompt-parts" },
-              ...bulkPrompt.parts
-                .filter((_, i) => bulkPrompt.dupes.has(i))
-                .flatMap((p, i) => [
-                  ...(i > 0
-                    ? [h("span", { className: "bulk-prompt-sep" }, "·")]
-                    : []),
-                  h("span", { className: "bulk-prompt-part is-dupe" }, p),
-                ]),
-            ),
+            `이미 있는 ${getLabelForType(type)}이에요`,
           )
-        : showDupeWarning
-          ? h(
-              "div",
-              { className: "bulk-prompt-dropdown is-warning" },
-              h("span", { className: "material-symbols-rounded" }, "warning"),
-              `이미 있는 ${getLabelForType(type)}이에요`,
-            )
           : null,
   );
 }
@@ -969,69 +1207,113 @@ function TreePanel() {
   return h(
     "nav",
     { className: "tree-panel" },
-
-    // ── PRODUCT ──
-    h("div", { className: "tree-section-header" }, "브랜드"),
     h(
-      "ul",
-      { className: "tree-section-body" },
-      ...productGroups.map(({ x, i }) =>
+      "div",
+      { className: "tree-panel-inner" },
+
+      // ── HOME ──
+      h("div", { className: "tree-section-header" }, "소개"),
+      h(
+        "ul",
+        { className: "tree-section-body" },
         h(
           "li",
           {},
           TreeLeaf(
-            "select-product-group",
-            { "data-gi": i },
-            x.label,
-            selectedNode?.type === "product-group" && selectedNode.gi === i,
+            "go-home",
+            {},
+            "시작하기",
+            selectedNode === null
           ),
         ),
       ),
-    ),
-    h(
-      "button",
-      {
-        className: "tree-add-btn",
-        type: "button",
-        "data-action": "add-product-group",
-      },
-      h("span", { className: "material-symbols-rounded" }, "add"),
-      "브랜드 추가",
-    ),
 
-    // ── CONCEPT ──
-    h("div", { className: "tree-section-header" }, "컨셉 그룹"),
-    h(
-      "ul",
-      { className: "tree-section-body" },
-      ...data.concept.options.map((group, gi) => {
-        const groupOpen = openConceptGroups.has(String(gi));
-        const groupSelected =
-          selectedNode?.type === "concept-group" && selectedNode.gi === gi;
-        return h(
-          "li",
-          { className: "tree-group-wrap" },
-          h(
-            "button",
+      // ── PRODUCT ──
+      h("div", { className: "tree-section-header" }, "브랜드"),
+      h(
+        "ul",
+        { className: "tree-section-body" },
+        ...productGroups.map(({ x, i }) => {
+          const key = `pg:${i}`;
+          const isDragging = dragSrc?.key === key;
+          const isDragOver = !isDragging && dragOverIdx === i && dragSrc?.list === "product-groups";
+          const dragDirClass = isDragOver ? (i > dragSrc.idx ? " drag-down" : " drag-up") : "";
+          return h(
+            "li",
             {
-              className: "tree-group-btn" + (groupSelected ? " selected" : ""),
-              type: "button",
-              "data-action": "select-concept-group",
-              "data-gi": gi,
+              className: (isDragging ? "chip-dragging" : "") + (isDragOver ? " group-drag-over" : "") + dragDirClass,
+              draggable: true,
+              "data-chip-key": key,
+              "data-chip-list": "product-groups",
+              "data-chip-idx": i,
+              "data-chip-type": "product-group",
+              "data-gi": i
             },
-            h("span", { className: "tree-group-label" }, group.label),
-            h(
-              "span",
-              {
-                className:
-                  "material-symbols-rounded tree-chevron" +
-                  (groupOpen ? " open" : ""),
-              },
-              "chevron_right",
+            TreeLeaf(
+              "select-product-group",
+              { "data-gi": i },
+              x.label,
+              selectedNode?.type === "product-group" && selectedNode.gi === i
             ),
-          ),
-          groupOpen
-            ? h(
+          );
+        }),
+      ),
+      h(
+        "button",
+        {
+          className: "tree-add-btn",
+          type: "button",
+          "data-action": "add-product-group",
+        },
+        h("span", { className: "material-symbols-rounded" }, "add"),
+        "브랜드 추가",
+      ),
+
+      // ── CONCEPT ──
+      h("div", { className: "tree-section-header" }, "컨셉 그룹"),
+      h(
+        "ul",
+        { className: "tree-section-body" },
+        ...data.concept.options.map((group, gi) => {
+          const groupOpen = openConceptGroups.has(String(gi));
+          const groupSelected =
+            selectedNode?.type === "concept-group" && selectedNode.gi === gi;
+          const key = `cg:${gi}`;
+          const isDragging = dragSrc?.key === key;
+          const isDragOver = !isDragging && dragOverIdx === gi && dragSrc?.list === "concept-groups";
+          const dragDirClass = isDragOver ? (gi > dragSrc.idx ? " drag-down" : " drag-up") : "";
+          return h(
+            "li",
+            {
+              className: "tree-group-wrap" + (isDragging ? " chip-dragging" : "") + (isDragOver ? " group-drag-over" : "") + dragDirClass,
+              draggable: true,
+              "data-chip-key": key,
+              "data-chip-list": "concept-groups",
+              "data-chip-idx": gi,
+              "data-chip-type": "concept-group",
+              "data-gi": gi
+            },
+            h(
+              "button",
+              {
+                className: "tree-group-btn" + (groupSelected ? " selected" : ""),
+                type: "button",
+                "data-action": "select-concept-group",
+                "data-gi": gi,
+              },
+              h("span", { className: "tree-group-label" }, group.label),
+              h(
+                "span",
+                {
+                  className:
+                    "material-symbols-rounded tree-chevron" +
+                    (groupOpen ? " open" : ""),
+                },
+                "chevron_right",
+              ),
+            ),
+            groupOpen
+              ? h(
                 "ul",
                 { className: "tree-group-items" },
                 ...group.items.map((item) => {
@@ -1050,19 +1332,20 @@ function TreePanel() {
                   );
                 }),
               )
-            : null,
-        );
-      }),
-    ),
-    h(
-      "button",
-      {
-        className: "tree-add-btn",
-        type: "button",
-        "data-action": "add-concept-group",
-      },
-      h("span", { className: "material-symbols-rounded" }, "add"),
-      "컨셉 그룹 추가",
+              : null,
+          );
+        }),
+      ),
+      h(
+        "button",
+        {
+          className: "tree-add-btn",
+          type: "button",
+          "data-action": "add-concept-group",
+        },
+        h("span", { className: "material-symbols-rounded" }, "add"),
+        "컨셉 그룹 추가",
+      ),
     ),
   );
 }
@@ -1081,9 +1364,9 @@ function EditorPanel() {
         h(
           "p",
           { className: "empty-state-desc" },
-          "소재명을 구성하는 항목들을 완벽하게 관리해보세요.",
+          "소재명을 구성하는 태그들을 완벽하게 관리해보세요.",
           h("br"),
-          "3단계로 쉽게 시작할 수 있어요.",
+          "4단계로 쉽게 시작할 수 있어요.",
         ),
         h(
           "div",
@@ -1104,7 +1387,7 @@ function EditorPanel() {
             h(
               "div",
               { className: "step-content" },
-              h("div", { className: "step-title" }, "항목 선택하기"),
+              h("div", { className: "step-title" }, "태그 선택하기"),
               h(
                 "div",
                 { className: "step-desc" },
@@ -1133,6 +1416,31 @@ function EditorPanel() {
             ),
           ),
           // Step 3
+          h(
+            "div",
+            { className: "empty-state-step" },
+            h(
+              "div",
+              { className: "step-icon" },
+              h(
+                "span",
+                { className: "material-symbols-rounded" },
+                "playlist_add",
+              ),
+            ),
+            h(
+              "div",
+              { className: "step-content" },
+              h("div", { className: "step-title" }, "여러 태그 한번에 추가"),
+              h(
+                "div",
+                { className: "step-desc" },
+                h("code", null, "태그1;태그2;태그3"),
+                " 처럼 세미콜론으로 구분해 입력하면 여러 태그를 한번에 추가할 수 있어요.",
+              ),
+            ),
+          ),
+          // Step 4
           h(
             "div",
             { className: "empty-state-step" },
@@ -1208,7 +1516,7 @@ function ProductGroupEditor(gi) {
       h(
         "p",
         { className: "editor-subtitle" },
-        "각 브랜드별 소재가 홍보하는 제품을 입력해요. 소재명의 두 번째 자리에 들어가는 항목이에요",
+        "각 브랜드별 소재가 홍보하는 제품을 입력해요. 소재명의 두 번째 자리에 들어가는 태그예요",
       ),
     ),
     h("hr", { className: "editor-divider" }),
@@ -1289,13 +1597,13 @@ function ConceptGroupEditor(gi) {
         "p",
         { className: "editor-subtitle" },
         "컨셉은 소재 분석에 있어 가장 중요한 인덱스 중 하나에요. ",
-        h("code", {}, "컨셉"),
+        h("span", { className: "text-highlight" }, "컨셉"),
         " 그리고 ",
-        h("code", {}, "세부 컨셉"),
-        " 의 2단계로 나누어 분석할 수 있게끔 구성해요 ",
-        h("code", {}, "컨셉 그룹"),
+        h("span", { className: "text-highlight" }, "세부 컨셉"),
+        "의 2단계로 나누어 분석할 수 있게끔 구성해요. ",
+        h("span", { className: "text-highlight" }, "컨셉 그룹"),
         " 과 ",
-        h("code", {}, "세부 컨셉 그룹"),
+        h("span", { className: "text-highlight" }, "세부 컨셉 그룹"),
         " 은 편의를 위한 구분이며 실제 소재명에 적용되지는 않아요",
       ),
     ),
@@ -1315,54 +1623,19 @@ function ConceptGroupEditor(gi) {
           "div",
           { className: "chip-wrap" },
           ...group.items.map((item, ii) => {
-            const key = `ci:${gi}:${ii}`;
-            const isEditing = editingChip === key;
-            const isDragging = dragSrc?.key === key;
-            const isDragOver =
-              !isDragging && dragOverIdx === ii && dragSrc?.list === `ci:${gi}`;
-            return h(
-              "div",
+            const hasSub = data.concept.subConcepts[item]?.length > 0;
+            return Chip(
+              item,
+              "del-concept-group-item",
+              { "data-gi": gi, "data-ii": ii },
               {
-                className:
-                  "concept-item-row" +
-                  (isDragging ? " chip-dragging" : "") +
-                  (isDragOver ? " chip-drag-over" : ""),
-                draggable: !isEditing,
-                "data-chip-key": key,
-                "data-chip-list": `ci:${gi}`,
-                "data-chip-idx": ii,
-                "data-chip-type": "concept-group-item",
-                "data-gi": gi,
-                "data-ii": ii,
-              },
-              h(
-                "span",
-                { className: "material-symbols-rounded chip-handle" },
-                "drag_indicator",
-              ),
-              isEditing
-                ? h("input", {
-                    type: "text",
-                    className: "chip-edit-inp",
-                    value: item,
-                    size: Math.max(4, item.length + 2),
-                    "data-edit-key": key,
-                    "data-edit-orig": item,
-                    "data-edit-type": "concept-group-item",
-                    "data-gi": gi,
-                    "data-ii": ii,
-                  })
-                : h(
-                    "span",
-                    {
-                      className: "chip-text",
-                      "data-action": "edit-chip",
-                      "data-chip-key": key,
-                    },
-                    item,
-                  ),
-              data.concept.subConcepts[item]?.length > 0
-                ? h(
+                key: `ci:${gi}:${ii}`,
+                list: `ci:${gi}`,
+                idx: ii,
+                type: "concept-group-item",
+                className: "concept-item-row",
+                extra: hasSub
+                  ? h(
                     "button",
                     {
                       className: "has-sub-badge",
@@ -1373,11 +1646,8 @@ function ConceptGroupEditor(gi) {
                     },
                     "세부",
                   )
-                : null,
-              ChipDelBtn("del-concept-group-item", {
-                "data-gi": gi,
-                "data-ii": ii,
-              }),
+                  : null,
+              },
             );
           }),
           AddInput("concept-group-item", { "data-gi": gi }, "컨셉 추가"),
@@ -1459,104 +1729,106 @@ function ConceptItemEditor(ci, gi) {
         { className: "ci-card-body" },
         groups.length === 0
           ? h(
-              "p",
-              { className: "editor-hint" },
-              "아래 버튼으로 첫 세부 컨셉 그룹을 추가하세요.",
-            )
+            "p",
+            { className: "editor-hint" },
+            "아래 버튼으로 첫 세부 컨셉 그룹을 추가하세요.",
+          )
           : h(
-              "div",
-              { className: "ci-sub-grid" },
-              ...groups.map((group, scg) => {
-                const sgKey = `sg:${ci}:${scg}`;
-                const sgDragging = dragSrc?.key === sgKey;
-                const sgDragOver =
-                  !sgDragging &&
-                  dragOverIdx === scg &&
-                  dragSrc?.list === `sg:${ci}`;
-                return h(
+            "div",
+            { className: "ci-sub-grid" },
+            ...groups.map((group, scg) => {
+              const sgKey = `sg:${ci}:${scg}`;
+              const sgDragging = dragSrc?.key === sgKey;
+              const sgDragOver =
+                !sgDragging &&
+                dragOverIdx === scg &&
+                dragSrc?.list === `sg:${ci}`;
+              const dragDirClass = sgDragOver ? (scg > dragSrc.idx ? " drag-down" : " drag-up") : "";
+              return h(
+                "div",
+                {
+                  className:
+                    "group-box" +
+                    (sgDragging ? " chip-dragging" : "") +
+                    (sgDragOver ? " group-drag-over" : "") +
+                    dragDirClass,
+                  draggable: true,
+                  "data-chip-key": sgKey,
+                  "data-chip-list": `sg:${ci}`,
+                  "data-chip-idx": scg,
+                  "data-chip-type": "subconcept-group",
+                  "data-ci": ci,
+                  "data-scg": scg,
+                },
+                h(
                   "div",
-                  {
-                    className:
-                      "group-box" +
-                      (sgDragging ? " chip-dragging" : "") +
-                      (sgDragOver ? " group-drag-over" : ""),
-                    draggable: true,
-                    "data-chip-key": sgKey,
-                    "data-chip-list": `sg:${ci}`,
-                    "data-chip-idx": scg,
-                    "data-chip-type": "subconcept-group",
+                  { className: "group-header" },
+                  h(
+                    "span",
+                    {
+                      className:
+                        "material-symbols-rounded chip-handle group-drag-handle",
+                    },
+                    "drag_indicator",
+                  ),
+                  h("input", {
+                    type: "text",
+                    className: "group-label-inp",
+                    value: group.label,
+                    placeholder: "세부 컨셉 그룹명",
+                    "data-orig": group.label,
+                    "data-label": "subconcept-group",
                     "data-ci": ci,
                     "data-scg": scg,
-                  },
-                  h(
-                    "div",
-                    { className: "group-header" },
+                  }),
+                  DeleteBtn(
+                    "del-subconcept-group",
+                    { "data-ci": ci, "data-scg": scg },
+                    "btn-danger-xs",
                     h(
                       "span",
-                      {
-                        className:
-                          "material-symbols-rounded chip-handle group-drag-handle",
-                      },
-                      "drag_indicator",
+                      { className: "material-symbols-rounded" },
+                      "delete",
                     ),
-                    h("input", {
-                      type: "text",
-                      className: "group-label-inp",
-                      value: group.label,
-                      placeholder: "세부 컨셉 그룹명",
-                      "data-orig": group.label,
-                      "data-label": "subconcept-group",
-                      "data-ci": ci,
-                      "data-scg": scg,
-                    }),
-                    DeleteBtn(
-                      "del-subconcept-group",
-                      { "data-ci": ci, "data-scg": scg },
-                      "btn-danger-xs",
-                      h(
-                        "span",
-                        { className: "material-symbols-rounded" },
-                        "delete",
-                      ),
-                      "세부 컨셉 삭제",
-                    ),
+                    "세부 컨셉 그룹 삭제",
                   ),
+                ),
+                h(
+                  "div",
+                  { className: "group-items" },
                   h(
                     "div",
-                    { className: "group-items" },
-                    h(
-                      "div",
-                      { className: "chip-wrap" },
-                      ...group.items.map((item, scgi) =>
-                        Chip(
-                          item,
-                          "del-subconcept-group-item",
-                          {
-                            "data-ci": ci,
-                            "data-scg": scg,
-                            "data-scgi": scgi,
-                          },
-                          {
-                            key: `s:${ci}:${scg}:${scgi}`,
-                            list: `s:${ci}:${scg}`,
-                            idx: scgi,
-                            type: "subconcept-group-item",
-                          },
-                        ),
-                      ),
-                      AddInput(
-                        "subconcept-group-item",
+                    { className: "chip-wrap" },
+                    ...group.items.map((item, scgi) =>
+                      Chip(
+                        item,
+                        "del-subconcept-group-item",
                         {
                           "data-ci": ci,
                           "data-scg": scg,
+                          "data-scgi": scgi,
                         },
-                        "세부 컨셉 추가",
+                        {
+                          key: `s:${ci}:${scg}:${scgi}`,
+                          list: `s:${ci}:${scg}`,
+                          idx: scgi,
+                          type: "subconcept-group-item",
+                        },
                       ),
                     ),
+                    AddInput(
+                      "subconcept-group-item",
+                      {
+                        "data-ci": ci,
+                        "data-scg": scg,
+                      },
+                      "세부 컨셉 추가",
+                    ),
                   ),
-                );
-              }),
-            ),
+                ),
+              );
+            }),
+          ),
         h(
           "button",
           {
@@ -1616,9 +1888,35 @@ function Footer() {
 
 function Modal() {
   const { action, ds } = confirmPending;
-  const subject = getDeleteSubject(action, ds);
-  const typeLabel = getDeleteTypeLabel(action);
   const confirmAttrs = dsToAttrs(ds);
+
+  let title, bodyText, confirmLabel, confirmClass, confirmAction;
+
+  if (action === "restore-history") {
+    title = "과거 시점으로 되돌릴까요?";
+    bodyText = [
+      "선택하신 시점으로 전체 상태를 복구해요",
+      h("br"),
+      "이후에 작업한 내역은 ",
+      h("strong", { style: "font-weight: 600; color: var(--text)" }, "모두 삭제되요")
+    ];
+    confirmLabel = "되돌리기";
+    confirmClass = "modal-confirm"; // Change from primary to danger
+    confirmAction = "confirm-restore-history";
+  } else {
+    // Delete branch
+    const subject = getDeleteSubject(action, ds);
+    const typeLabel = getDeleteTypeLabel(action);
+    title = "정말 삭제할까요?";
+    bodyText = [
+      subject ? h("span", { className: "modal-subject" }, subject) : `이 ${typeLabel}`,
+      subject ? ` ${typeLabel}을(를)` : "을(를)",
+      " 삭제하게 돼요"
+    ];
+    confirmLabel = "삭제";
+    confirmClass = "modal-confirm";
+    confirmAction = "confirm-delete";
+  }
 
   return h(
     "div",
@@ -1626,15 +1924,11 @@ function Modal() {
     h(
       "div",
       { className: "modal-dialog" },
-      h("h2", { className: "modal-title" }, "정말 삭제할까요?"),
+      h("h2", { className: "modal-title" }, title),
       h(
         "p",
         { className: "modal-body" },
-        subject
-          ? h("span", { className: "modal-subject" }, `'${subject}'`)
-          : `이 ${typeLabel}`,
-        subject ? ` ${typeLabel}을(를)` : "을(를)",
-        " 삭제하면 되돌릴 수 없어요",
+        ...bodyText
       ),
       h(
         "div",
@@ -1644,7 +1938,7 @@ function Modal() {
           {
             type: "button",
             className: "modal-cancel",
-            "data-action": "cancel-delete",
+            "data-action": "cancel-modal",
           },
           "취소",
         ),
@@ -1652,14 +1946,27 @@ function Modal() {
           "button",
           {
             type: "button",
-            className: "modal-confirm",
-            "data-action": "confirm-delete",
+            className: confirmClass,
+            "data-action": confirmAction,
             ...confirmAttrs,
           },
-          "삭제",
+          confirmLabel,
         ),
       ),
     ),
+  );
+}
+
+// ─── Draft restore modal ──────────────────────────────────────
+
+function Toast() {
+  const visible = Boolean(toastMsg);
+  const lastAction = visible && undoStack.length > 0 ? undoStack[undoStack.length - 1].desc : null;
+  return h(
+    "div",
+    { className: "toast" + (visible ? " toast--visible" : "") },
+    visible ? h("div", { className: "toast-label" }, toastMsg) : null,
+    lastAction ? h("div", { className: "toast-action" }, ...formatHistoryDesc(lastAction)) : null
   );
 }
 
@@ -1672,12 +1979,12 @@ function SubmitModal() {
     h(
       "div",
       { className: "modal-dialog" },
-      h("h2", { className: "modal-title" }, "변경 사항을 제출할까요?"),
+      h("h2", { className: "modal-title" }, "변경 사항을 저장할까요?"),
       h(
         "p",
         { className: "modal-body" },
         submitting
-          ? "서버에 제출 중이에요..."
+          ? "서버에 저장 중이에요..."
           : submitError
             ? submitError
             : "수정한다고 고생하셨어요!",
@@ -1703,9 +2010,109 @@ function SubmitModal() {
             "data-action": "confirm-submit",
             disabled: submitting,
           },
-          submitting ? "제출 중..." : "제출",
+          submitting ? "저장 중..." : "저장",
         ),
       ),
+    ),
+  );
+}
+
+// ─── History Panel ────────────────────────────────────────────
+
+function formatHistoryDesc(desc) {
+  if (typeof desc !== "string") return [desc];
+  const parts = desc.split("'");
+  const tokens = [];
+  parts.forEach((part, i) => {
+    if (i % 2 === 1) {
+      tokens.push(h("span", { className: "history-item-subject" }, part));
+    } else {
+      const subParts = part.split(" → ");
+      subParts.forEach((sp, j) => {
+        if (sp !== "") tokens.push(sp);
+        if (j < subParts.length - 1) {
+          tokens.push(
+            h("span", {
+              className: "material-symbols-rounded",
+              style: "font-size: 1.25em; vertical-align: -0.22em; margin: 0 4px; color: var(--text-muted);"
+            }, "arrow_right_alt")
+          );
+        }
+      });
+    }
+  });
+  return tokens;
+}
+
+function HistoryPanel() {
+  const steps = [];
+  // Always show phantom base entry
+  steps.push({
+    desc: "서버에서 데이터 불러오기",
+    time: serverLoadTime,
+    idx: 0,
+    isCurrent: undoStack.length === 0
+  });
+
+  // User action entries
+  for (let i = 0; i < undoStack.length; i++) {
+    steps.push({
+      desc: undoStack[i].desc,
+      time: i === undoStack.length - 1 ? lastActionTime : undoStack[i + 1]?.time ?? lastActionTime,
+      idx: i + 1,
+      isCurrent: i === undoStack.length - 1
+    });
+  }
+
+  const reversedSteps = steps.reverse();
+
+  return h(
+    "div",
+    { className: "history-panel" + (historyOpen ? " open" : "") },
+    h(
+      "div",
+      { className: "history-header" },
+      h("h3", {}, "작업 내역"),
+      h(
+        "button",
+        {
+          className: "history-close-btn material-symbols-rounded",
+          type: "button",
+          "data-action": "toggle-history",
+        },
+        "close",
+      ),
+    ),
+    h(
+      "div",
+      { className: "history-body" },
+      ...reversedSteps.map(({ desc, time, idx, isCurrent }) => {
+        const d = new Date(time);
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        const timeStr = `${yyyy}-${mm}-${dd} ${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}:${d.getSeconds().toString().padStart(2, "0")}`;
+        return h(
+          "button",
+          {
+            className: "history-item" + (isCurrent ? " current" : ""),
+            type: "button",
+            "data-action": "restore-history",
+            "data-idx": idx,
+            disabled: isCurrent,
+          },
+          h(
+            "div",
+            { className: "history-item-header" },
+            h("span", { className: "history-item-time" }, timeStr),
+            isCurrent ? h("span", { className: "history-item-badge" }, "현재") : null
+          ),
+          h("div", { className: "history-item-desc" }, ...formatHistoryDesc(desc)),
+        );
+      }),
+      undoStack.length > 0
+        ? h("div", { className: "history-hint" }, "항목을 클릭하면 해당 시점으로 되돌아가요")
+        : null
     ),
   );
 }
@@ -1720,7 +2127,6 @@ function App() {
       "div",
       {
         id: "admin-app-inner",
-        onClick: onAppClick,
         onKeyDown: onAppKeyDown,
         onChange: onAppChange,
         onInput: onAppInput,
@@ -1732,8 +2138,10 @@ function App() {
       },
       TreePanel(),
       h("div", { className: "editor-panel" }, EditorPanel()),
+      HistoryPanel(),
       confirmPending ? Modal() : null,
       submitPending ? SubmitModal() : null,
+      Toast(),
     ),
     Footer(),
   );
@@ -1754,31 +2162,22 @@ async function submitData() {
       body: JSON.stringify(data),
     });
     if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
+
+    originalData = JSON.parse(JSON.stringify(data));
     dirty = false;
     submitPending = false;
     submitting = false;
-    document.getElementById("submit-btn").classList.remove("dirty");
+    document.getElementById("submit-btn")?.classList.remove("dirty");
+    localStorage.removeItem("ad-name-generator-draft");
     rerender();
   } catch (err) {
-    submitError = err.message || "제출에 실패했어요. 다시 시도해주세요.";
+    submitError = err.message || "저장에 실패했어요. 다시 시도해주세요.";
     submitting = false;
     rerender();
   }
 }
 
-window.addEventListener("beforeunload", (e) => {
-  if (dirty) {
-    e.preventDefault();
-    e.returnValue = "";
-  }
-});
-
-document.getElementById("submit-btn").addEventListener("click", function () {
-  if (!dirty) return;
-  submitPending = true;
-  submitError = null;
-  rerender();
-});
+// ─── Key Bindings ─────────────────────────────────────────────
 
 document.addEventListener("keydown", function (e) {
   if ((e.ctrlKey || e.metaKey) && e.key === "z" && !e.shiftKey) {
@@ -1792,10 +2191,48 @@ document.addEventListener("keydown", function (e) {
 
 // ─── Init ─────────────────────────────────────────────────────
 
+document.addEventListener("click", onAppClick);
+
 fetch("data.json")
   .then((r) => r.json())
   .then((d) => {
+    originalData = JSON.parse(JSON.stringify(d));
+    const draftStr = localStorage.getItem("ad-name-generator-draft");
+    if (draftStr) {
+      try {
+        const parsed = JSON.parse(draftStr);
+        let draftData = parsed;
+        if (parsed && parsed.version === 2) {
+          draftData = parsed.data;
+        }
+
+        if (JSON.stringify(draftData) !== JSON.stringify(d)) {
+          // Auto-restore draft silently
+          data = parsed.version === 2 ? parsed.data : parsed;
+          undoStack.length = 0;
+          if (parsed.version === 2 && parsed.undoStack) {
+            undoStack.push(...parsed.undoStack);
+          }
+          // Restore selected screen from last undo entry
+          if (undoStack.length > 0) {
+            selectedNode = undoStack[undoStack.length - 1].node ?? null;
+          }
+          serverLoadTime = Date.now();
+          markDirty();
+          setTimeout(() => {
+            toastMsg = "최근 작업 내역을 불러왔어요";
+            rerender();
+            setTimeout(() => { toastMsg = null; rerender(); }, 4000);
+          }, 500);
+          return;
+        }
+      } catch (e) {
+        // ignore parse error
+      }
+    }
     data = d;
+    undoStack.length = 0;
+    serverLoadTime = Date.now();
     rerender();
   })
   .catch(() => {
