@@ -219,3 +219,24 @@
   -webkit-font-smoothing: antialiased;
   user-select: none;
 }
+
+/* ── Scrollbars ───────────────────────────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: var(--space-1);
+  height: var(--space-1);
+}
+
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 2px;
+}

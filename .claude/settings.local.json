@@ -8,7 +8,9 @@
       "Bash(git -C /Users/johnny/repos/ad-name-generator diff --stat)",
       "Bash(git -C /Users/johnny/repos/ad-name-generator log --oneline -3)",
       "Bash(git -C /Users/johnny/repos/ad-name-generator add script.js styles.css)",
-      "Bash(git -C:*)"
+      "Bash(git -C:*)",
+      "Bash(python3:*)",
+      "Bash(node:*)"
     ]
   }
 }

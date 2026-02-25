@@ -692,24 +692,24 @@ function Chip(text, delAction, delAttrs, opts) {
     ),
     isEditing
       ? h("input", {
-          type: "text",
-          className: "chip-edit-inp",
-          value: text,
-          size: Math.max(4, text.length + 2),
-          "data-edit-key": key,
-          "data-edit-orig": text,
-          "data-edit-type": type,
-          ...delAttrs,
-        })
+        type: "text",
+        className: "chip-edit-inp",
+        value: text,
+        size: Math.max(4, text.length + 2),
+        "data-edit-key": key,
+        "data-edit-orig": text,
+        "data-edit-type": type,
+        ...delAttrs,
+      })
       : h(
-          "span",
-          {
-            className: "chip-text",
-            "data-action": "edit-chip",
-            "data-chip-key": key,
-          },
-          text,
-        ),
+        "span",
+        {
+          className: "chip-text",
+          "data-action": "edit-chip",
+          "data-chip-key": key,
+        },
+        text,
+      ),
     ChipDelBtn(delAction, delAttrs),
   );
 }
@@ -813,24 +813,24 @@ function TreePanel() {
           ),
           groupOpen
             ? h(
-                "ul",
-                { className: "tree-group-items" },
-                ...group.items.map((item) => {
-                  const sel =
-                    selectedNode?.type === "concept-item" &&
-                    selectedNode.ci === item;
-                  return h(
-                    "li",
-                    { className: "tree-leaf-wrap" },
-                    TreeLeaf(
-                      "select-concept-item",
-                      { "data-ci": item, "data-gi": gi },
-                      item,
-                      sel,
-                    ),
-                  );
-                }),
-              )
+              "ul",
+              { className: "tree-group-items" },
+              ...group.items.map((item) => {
+                const sel =
+                  selectedNode?.type === "concept-item" &&
+                  selectedNode.ci === item;
+                return h(
+                  "li",
+                  { className: "tree-leaf-wrap" },
+                  TreeLeaf(
+                    "select-concept-item",
+                    { "data-ci": item, "data-gi": gi },
+                    item,
+                    sel,
+                  ),
+                );
+              }),
+            )
             : null,
         );
       }),
@@ -875,18 +875,18 @@ function ProductGroupEditor(gi) {
     { className: "editor-section" },
     h(
       "div",
-      { className: "editor-header-group" },
+      { className: "editor-breadcrumb" },
+      h("span", { className: "breadcrumb-current" }, "브랜드"),
       h(
-        "div",
-        { className: "editor-breadcrumb" },
-        h("span", { className: "breadcrumb-current" }, "브랜드"),
-        h(
-          "span",
-          { className: "material-symbols-rounded breadcrumb-sep" },
-          "chevron_right",
-        ),
-        h("span", { className: "breadcrumb-current" }, group.label),
+        "span",
+        { className: "material-symbols-rounded breadcrumb-sep" },
+        "chevron_right",
       ),
+      h("span", { className: "breadcrumb-current" }, group.label),
+    ),
+    h(
+      "div",
+      { className: "editor-header-group" },
       h(
         "div",
         { className: "editor-title-row" },
@@ -955,18 +955,18 @@ function ConceptGroupEditor(gi) {
     { className: "editor-section" },
     h(
       "div",
-      { className: "editor-header-group" },
+      { className: "editor-breadcrumb" },
+      h("span", { className: "breadcrumb-current" }, "컨셉"),
       h(
-        "div",
-        { className: "editor-breadcrumb" },
-        h("span", { className: "breadcrumb-current" }, "컨셉"),
-        h(
-          "span",
-          { className: "material-symbols-rounded breadcrumb-sep" },
-          "chevron_right",
-        ),
-        h("span", { className: "breadcrumb-current" }, group.label),
+        "span",
+        { className: "material-symbols-rounded breadcrumb-sep" },
+        "chevron_right",
       ),
+      h("span", { className: "breadcrumb-current" }, group.label),
+    ),
+    h(
+      "div",
+      { className: "editor-header-group" },
       h(
         "div",
         { className: "editor-title-row" },
@@ -1044,37 +1044,37 @@ function ConceptGroupEditor(gi) {
               ),
               isEditing
                 ? h("input", {
-                    type: "text",
-                    className: "chip-edit-inp",
-                    value: item,
-                    size: Math.max(4, item.length + 2),
-                    "data-edit-key": key,
-                    "data-edit-orig": item,
-                    "data-edit-type": "concept-group-item",
-                    "data-gi": gi,
-                    "data-ii": ii,
-                  })
+                  type: "text",
+                  className: "chip-edit-inp",
+                  value: item,
+                  size: Math.max(4, item.length + 2),
+                  "data-edit-key": key,
+                  "data-edit-orig": item,
+                  "data-edit-type": "concept-group-item",
+                  "data-gi": gi,
+                  "data-ii": ii,
+                })
                 : h(
-                    "span",
-                    {
-                      className: "chip-text",
-                      "data-action": "edit-chip",
-                      "data-chip-key": key,
-                    },
-                    item,
-                  ),
+                  "span",
+                  {
+                    className: "chip-text",
+                    "data-action": "edit-chip",
+                    "data-chip-key": key,
+                  },
+                  item,
+                ),
               data.concept.subConcepts[item]?.length > 0
                 ? h(
-                    "button",
-                    {
-                      className: "has-sub-badge",
-                      type: "button",
-                      "data-action": "select-concept-item",
-                      "data-ci": item,
-                      "data-gi": gi,
-                    },
-                    "세부",
-                  )
+                  "button",
+                  {
+                    className: "has-sub-badge",
+                    type: "button",
+                    "data-action": "select-concept-item",
+                    "data-ci": item,
+                    "data-gi": gi,
+                  },
+                  "세부",
+                )
                 : null,
               ChipDelBtn("del-concept-group-item", {
                 "data-gi": gi,
@@ -1098,33 +1098,33 @@ function ConceptItemEditor(ci, gi) {
     { className: "editor-section" },
     h(
       "div",
-      { className: "editor-header-group" },
+      { className: "editor-breadcrumb" },
+      h("span", { className: "breadcrumb-current" }, "컨셉"),
       h(
-        "div",
-        { className: "editor-breadcrumb" },
-        h("span", { className: "breadcrumb-current" }, "컨셉"),
-        h(
-          "span",
-          { className: "material-symbols-rounded breadcrumb-sep" },
-          "chevron_right",
-        ),
-        h(
-          "button",
-          {
-            className: "breadcrumb-btn",
-            type: "button",
-            "data-action": "select-concept-group",
-            "data-gi": gi,
-          },
-          parentLabel,
-        ),
-        h(
-          "span",
-          { className: "material-symbols-rounded breadcrumb-sep" },
-          "chevron_right",
-        ),
-        h("span", { className: "breadcrumb-current" }, ci),
+        "span",
+        { className: "material-symbols-rounded breadcrumb-sep" },
+        "chevron_right",
       ),
+      h(
+        "button",
+        {
+          className: "breadcrumb-btn",
+          type: "button",
+          "data-action": "select-concept-group",
+          "data-gi": gi,
+        },
+        parentLabel,
+      ),
+      h(
+        "span",
+        { className: "material-symbols-rounded breadcrumb-sep" },
+        "chevron_right",
+      ),
+      h("span", { className: "breadcrumb-current" }, ci),
+    ),
+    h(
+      "div",
+      { className: "editor-header-group" },
       h(
         "div",
         { className: "editor-title-row" },
@@ -1161,104 +1161,104 @@ function ConceptItemEditor(ci, gi) {
         { className: "ci-card-body" },
         groups.length === 0
           ? h(
-              "p",
-              { className: "editor-hint" },
-              "아래 버튼으로 첫 세부 컨셉 그룹을 추가하세요.",
-            )
+            "p",
+            { className: "editor-hint" },
+            "아래 버튼으로 첫 세부 컨셉 그룹을 추가하세요.",
+          )
           : h(
-              "div",
-              { className: "ci-sub-grid" },
-              ...groups.map((group, scg) => {
-                const sgKey = `sg:${ci}:${scg}`;
-                const sgDragging = dragSrc?.key === sgKey;
-                const sgDragOver =
-                  !sgDragging &&
-                  dragOverIdx === scg &&
-                  dragSrc?.list === `sg:${ci}`;
-                return h(
+            "div",
+            { className: "ci-sub-grid" },
+            ...groups.map((group, scg) => {
+              const sgKey = `sg:${ci}:${scg}`;
+              const sgDragging = dragSrc?.key === sgKey;
+              const sgDragOver =
+                !sgDragging &&
+                dragOverIdx === scg &&
+                dragSrc?.list === `sg:${ci}`;
+              return h(
+                "div",
+                {
+                  className:
+                    "group-box" +
+                    (sgDragging ? " chip-dragging" : "") +
+                    (sgDragOver ? " group-drag-over" : ""),
+                  draggable: true,
+                  "data-chip-key": sgKey,
+                  "data-chip-list": `sg:${ci}`,
+                  "data-chip-idx": scg,
+                  "data-chip-type": "subconcept-group",
+                  "data-ci": ci,
+                  "data-scg": scg,
+                },
+                h(
                   "div",
-                  {
-                    className:
-                      "group-box" +
-                      (sgDragging ? " chip-dragging" : "") +
-                      (sgDragOver ? " group-drag-over" : ""),
-                    draggable: true,
-                    "data-chip-key": sgKey,
-                    "data-chip-list": `sg:${ci}`,
-                    "data-chip-idx": scg,
-                    "data-chip-type": "subconcept-group",
+                  { className: "group-header" },
+                  h(
+                    "span",
+                    {
+                      className:
+                        "material-symbols-rounded chip-handle group-drag-handle",
+                    },
+                    "drag_indicator",
+                  ),
+                  h("input", {
+                    type: "text",
+                    className: "group-label-inp",
+                    value: group.label,
+                    placeholder: "세부 컨셉 그룹명",
+                    "data-orig": group.label,
+                    "data-label": "subconcept-group",
                     "data-ci": ci,
                     "data-scg": scg,
-                  },
-                  h(
-                    "div",
-                    { className: "group-header" },
+                  }),
+                  DeleteBtn(
+                    "del-subconcept-group",
+                    { "data-ci": ci, "data-scg": scg },
+                    "btn-danger-xs",
                     h(
                       "span",
-                      {
-                        className:
-                          "material-symbols-rounded chip-handle group-drag-handle",
-                      },
-                      "drag_indicator",
+                      { className: "material-symbols-rounded" },
+                      "delete",
                     ),
-                    h("input", {
-                      type: "text",
-                      className: "group-label-inp",
-                      value: group.label,
-                      placeholder: "세부 컨셉 그룹명",
-                      "data-orig": group.label,
-                      "data-label": "subconcept-group",
-                      "data-ci": ci,
-                      "data-scg": scg,
-                    }),
-                    DeleteBtn(
-                      "del-subconcept-group",
-                      { "data-ci": ci, "data-scg": scg },
-                      "btn-danger-xs",
-                      h(
-                        "span",
-                        { className: "material-symbols-rounded" },
-                        "delete",
-                      ),
-                      "세부 컨셉 삭제",
-                    ),
+                    "세부 컨셉 삭제",
                   ),
+                ),
+                h(
+                  "div",
+                  { className: "group-items" },
                   h(
                     "div",
-                    { className: "group-items" },
-                    h(
-                      "div",
-                      { className: "chip-wrap" },
-                      ...group.items.map((item, scgi) =>
-                        Chip(
-                          item,
-                          "del-subconcept-group-item",
-                          {
-                            "data-ci": ci,
-                            "data-scg": scg,
-                            "data-scgi": scgi,
-                          },
-                          {
-                            key: `s:${ci}:${scg}:${scgi}`,
-                            list: `s:${ci}:${scg}`,
-                            idx: scgi,
-                            type: "subconcept-group-item",
-                          },
-                        ),
-                      ),
-                      AddInput(
-                        "subconcept-group-item",
+                    { className: "chip-wrap" },
+                    ...group.items.map((item, scgi) =>
+                      Chip(
+                        item,
+                        "del-subconcept-group-item",
                         {
                           "data-ci": ci,
                           "data-scg": scg,
+                          "data-scgi": scgi,
                         },
-                        "세부 컨셉 추가",
+                        {
+                          key: `s:${ci}:${scg}:${scgi}`,
+                          list: `s:${ci}:${scg}`,
+                          idx: scgi,
+                          type: "subconcept-group-item",
+                        },
                       ),
                     ),
+                    AddInput(
+                      "subconcept-group-item",
+                      {
+                        "data-ci": ci,
+                        "data-scg": scg,
+                      },
+                      "세부 컨셉 추가",
+                    ),
                   ),
-                );
-              }),
-            ),
+                ),
+              );
+            }),
+          ),
         h(
           "button",
           {
@@ -1374,7 +1374,7 @@ function SubmitModal() {
     h(
       "div",
       { className: "modal-dialog" },
-      h("h2", { className: "modal-title" }, "변경 사항을 적용할까요?"),
+      h("h2", { className: "modal-title" }, "변경 사항을 제출할까요?"),
       h(
         "p",
         { className: "modal-body" },

@@ -86,28 +86,6 @@ body {
 
 /* ── Tree panel ───────────────────────────────────────────── */
 
-.tree-panel,
-.editor-panel {
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-.tree-panel::-webkit-scrollbar,
-.editor-panel::-webkit-scrollbar {
-  width: var(--space-1);
-}
-
-.tree-panel::-webkit-scrollbar-track,
-.editor-panel::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.tree-panel::-webkit-scrollbar-thumb,
-.editor-panel::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-
 .tree-panel {
   background: var(--surface-2);
   border-right: 1px solid var(--border);
@@ -130,7 +108,7 @@ body {
   gap: var(--space-2);
 }
 
-.tree-panel > * + .tree-section-header {
+.tree-panel>*+.tree-section-header {
   margin-top: var(--space-3);
   padding-top: var(--space-3);
 }
@@ -310,7 +288,7 @@ body {
   background: var(--surface);
   overflow-y: auto;
   min-height: 0;
-  padding: 26px;
+  padding: 26px var(--space-12);
   /* Spacious, like a doc page */
 }
 
@@ -335,7 +313,7 @@ body {
   font-weight: 700;
   color: var(--text);
   letter-spacing: -0.02em;
-  margin-bottom: 8px;
+  margin-bottom: var(--space-2);
 }
 
 .editor-subtitle {
@@ -399,20 +377,22 @@ body {
 .editor-header-group {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
 }
 
 .editor-hint {
   font-size: var(--text-xs);
-  margin-bottom: 4px;
+  margin-bottom: var(--space-1);
   color: var(--text-muted);
 }
 
 .editor-breadcrumb {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: var(--text-xs);
+  gap: var(--space-2);
+  font-size: 11px;
+  font-weight: 500;
+  opacity: 0.8;
 }
 
 .breadcrumb-btn {
@@ -449,7 +429,7 @@ body {
 }
 
 .breadcrumb-sep {
-  font-size: 18px;
+  font-size: 16px;
   line-height: 1;
 }
 
@@ -511,6 +491,7 @@ body {
     background 0.15s,
     color 0.15s;
 }
+
 .has-sub-badge:hover {
   background: var(--accent-border);
   color: var(--text);
@@ -744,7 +725,7 @@ body {
     color 0.15s;
 }
 
-.btn-danger-sm > .material-symbols-rounded {
+.btn-danger-sm>.material-symbols-rounded {
   font-size: var(--text-lg);
 }
 
@@ -772,7 +753,7 @@ body {
     border-color 0.15s;
 }
 
-.btn-danger-xs > .material-symbols-rounded {
+.btn-danger-xs>.material-symbols-rounded {
   font-size: var(--text-base);
 }
 
@@ -794,6 +775,7 @@ body {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -804,6 +786,7 @@ body {
     opacity: 0;
     transform: scale(0.94) translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: scale(1) translateY(0);
@@ -811,6 +794,7 @@ body {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .modal-overlay,
   .modal-dialog {
     animation: none;
