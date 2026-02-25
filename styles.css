@@ -25,27 +25,6 @@ body {
   overflow: hidden;
 }
 
-.page-scroll {
-  flex: 1;
-  overflow-y: auto;
-  scrollbar-gutter: stable;
-  scrollbar-width: thin;
-  scrollbar-color: var(--border) transparent;
-}
-
-.page-scroll::-webkit-scrollbar {
-  width: var(--space-1);
-}
-
-.page-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.page-scroll::-webkit-scrollbar-thumb {
-  background: var(--border);
-  border-radius: 2px;
-}
-
 #app {
   width: 580px;
   max-width: calc(100% - var(--space-8));
@@ -64,7 +43,7 @@ body {
   font-size: var(--text-xl);
   font-weight: var(--font-semibold);
   letter-spacing: -0.01em;
-  background: linear-gradient(90deg, #f0f0f0 20%, var(--accent-hover) 100%);
+  background: linear-gradient(90deg, var(--title-highlight-start) 20%, var(--accent-hover) 100%);
   /* Updated from purple */
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -118,9 +97,7 @@ body {
       var(--accent-border) 0%,
       color-mix(in srgb, var(--border) 40%, transparent) 60%,
       color-mix(in srgb, var(--border) 10%, transparent) 100%) border-box;
-  box-shadow:
-    0 8px 40px rgba(0, 0, 0, 0.45),
-    0 2px 8px rgba(0, 0, 0, 0.25);
+  box-shadow: var(--shadow-card);
 }
 
 /* ── Copy history card ───────────────────────── */
@@ -246,7 +223,7 @@ body {
 
 .history-item .copy-btn:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-subtle);
 }
 
 .history-item-name {
@@ -257,29 +234,6 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.footer-link {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  text-decoration: none;
-  transition: color 0.15s;
-}
-
-.footer-link:hover {
-  color: var(--text);
-}
-
-.footer-icon {
-  display: inline-flex;
-  align-items: center;
-}
-
-.footer-icon svg {
-  display: block;
 }
 
 /* Field list */
@@ -323,7 +277,7 @@ body {
   border-radius: var(--radius-md);
   max-width: 200px;
   white-space: normal;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  box-shadow: var(--shadow-tooltip);
   z-index: 200;
   pointer-events: none;
   opacity: 0;
@@ -401,7 +355,7 @@ body {
 
 .dropdown-clear:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover-subtle-strong);
 }
 
 .dropdown-clear .material-symbols-rounded {
@@ -434,7 +388,7 @@ body {
   z-index: 100;
   max-height: 272px;
   overflow-y: auto;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-panel);
 }
 
 @keyframes dropdown-enter {
@@ -611,7 +565,7 @@ body {
   z-index: 100;
   max-height: 200px;
   overflow-y: auto;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-panel);
 }
 
 .suggestions-menu::-webkit-scrollbar {
@@ -679,7 +633,7 @@ body {
 
 .suggestion-remove:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--hover-subtle-strong);
 }
 
 .suggestion-remove .material-symbols-rounded {
@@ -763,7 +717,7 @@ body {
 
 .version-btn:hover:not(:disabled) {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-subtle);
 }
 
 .version-btn:disabled {
@@ -857,12 +811,91 @@ body {
 }
 
 .output-missing-chip {
-  background: var(--surface-3);
-  border: 1px solid var(--border);
+  display: inline-flex;
+  align-items: center;
+  background: var(--action-neutral-bg);
+  border: 1px solid var(--action-neutral-border);
   border-radius: 20px;
   padding: var(--space-1) var(--space-3);
   font-size: var(--text-sm);
   color: var(--text-muted);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background-color 0.15s,
+    border-color 0.15s,
+    color 0.15s;
+}
+
+.output-missing-chip:hover {
+  background: var(--action-neutral-hover-bg);
+  border-color: var(--action-neutral-hover-border);
+  color: var(--text);
+}
+
+.output-missing-chip:focus-visible {
+  outline: none;
+  box-shadow: var(--shadow-focus-neutral);
+}
+
+.output-warning-inline,
+.output-warning-inline.bulk-prompt-dropdown {
+  width: fit-content;
+  max-width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--error);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-panel);
+  text-align: left;
+  cursor: default;
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  z-index: 100;
+  font-size: var(--text-sm);
+  font-weight: var(--font-medium);
+  font-family: var(--font-family-base);
+  color: var(--text);
+  white-space: nowrap;
+  transition: background-color 0.15s;
+  animation: modal-dialog-in 0.2s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.inline-input-warning {
+  pointer-events: none;
+}
+
+.output-warning-inline .material-symbols-rounded {
+  color: var(--error);
+  font-size: var(--text-lg);
+  flex-shrink: 0;
+}
+
+.output-warning-parts {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.output-warning-sep {
+  color: var(--text-muted);
+}
+
+.output-warning-part {
+  color: var(--text);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 @keyframes output-enter {
@@ -1040,7 +1073,7 @@ body {
 
 .share-copy-btn:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-subtle);
 }
 
 .share-copy-btn .material-symbols-rounded {
@@ -1087,10 +1120,6 @@ body {
 
 .app-footer {
   margin-top: 2rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: var(--space-6);
 }
 
 .footer-shortcuts-wrapper {
@@ -1131,7 +1160,7 @@ body {
   border-radius: 10px;
   padding: var(--space-2) 0.625rem;
   min-width: 190px;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-panel);
   z-index: 200;
 }
 
@@ -1171,43 +1200,6 @@ body {
   color: var(--text);
 }
 
-/* ── Toast ───────────────────────────────────── */
-
-.toast {
-  position: fixed;
-  bottom: var(--space-8);
-  left: 50%;
-  transform: translateX(-50%) translateY(0.75rem);
-  background: var(--surface-3);
-  /* Replaced hardcoded gray */
-  border: 1px solid var(--border);
-  /* Replaced hardcoded border */
-  color: var(--text);
-  padding: 0.625rem var(--space-5);
-  border-radius: 10px;
-  font-size: var(--text-base);
-  font-family: inherit;
-  opacity: 0;
-  transition:
-    opacity 0.2s ease,
-    transform 0.2s ease;
-  pointer-events: none;
-  z-index: 1000;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-  max-width: min(480px, 90vw);
-}
-
-.toast--visible {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
-}
-
-.toast-label {
-  font-size: var(--text-xs);
-  color: var(--text-muted);
-  margin-bottom: 0.25rem;
-}
-
 .toast-name {
   font-family: "SF Mono", "Fira Code", ui-monospace, monospace;
   font-size: var(--text-sm);
@@ -1232,7 +1224,7 @@ body {
   border-radius: 10px;
   padding: var(--space-2);
   z-index: 100;
-  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+  box-shadow: var(--shadow-panel);
   animation: dropdown-enter 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
   user-select: none;
 }
@@ -1261,7 +1253,7 @@ body {
 
 .dp-nav-btn:hover {
   color: var(--text);
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--hover-subtle);
 }
 
 .dp-nav-btn .material-symbols-rounded {
@@ -1331,146 +1323,6 @@ body {
   font-weight: var(--font-semibold);
   outline: 2px solid var(--accent-border);
   outline-offset: -2px;
-}
-
-/* ── Confirmation modal ──────────────────────── */
-
-@keyframes modal-backdrop-in {
-  from {
-    opacity: 0;
-  }
-
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes modal-dialog-in {
-  from {
-    opacity: 0;
-    transform: scale(0.94) translateY(12px);
-  }
-
-  to {
-    opacity: 1;
-    transform: scale(1) translateY(0);
-  }
-}
-
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 200;
-  background: rgba(0, 0, 0, 0.6);
-  backdrop-filter: blur(4px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  animation: modal-backdrop-in 0.18s ease both;
-}
-
-.modal-dialog {
-  background: var(--surface);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-xl);
-  box-shadow:
-    0 32px 64px rgba(0, 0, 0, 0.5),
-    0 8px 24px rgba(0, 0, 0, 0.25),
-    0 0 0 1px rgba(255, 255, 255, 0.03);
-  padding: var(--space-6);
-  width: 360px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--space-3);
-  animation: modal-dialog-in 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.modal-title {
-  font-size: var(--text-xl);
-  font-weight: var(--font-semibold);
-  color: var(--text);
-  letter-spacing: -0.01em;
-  margin: 0;
-}
-
-.modal-body {
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-  line-height: 1.65;
-  margin: 0;
-  text-align: center;
-  word-break: keep-all;
-}
-
-.modal-actions {
-  display: flex;
-  width: 100%;
-  gap: var(--space-2);
-  margin-top: var(--space-2);
-}
-
-.modal-cancel {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--surface-3);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--text-muted);
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.15s, color 0.15s, border-color 0.15s;
-}
-
-.modal-cancel:hover {
-  background: var(--surface-2);
-  color: var(--text);
-  border-color: var(--border-focus);
-}
-
-.modal-cancel:focus-visible {
-  outline: 2px solid var(--border-focus);
-  outline-offset: 2px;
-}
-
-.modal-confirm {
-  flex: 1;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--error-bg);
-  border: 1px solid var(--error-border);
-  border-radius: var(--radius-md);
-  padding: var(--space-2) var(--space-4);
-  font-size: var(--text-sm);
-  font-weight: var(--font-medium);
-  color: var(--error);
-  cursor: pointer;
-  font-family: inherit;
-  transition: background 0.15s, border-color 0.15s;
-}
-
-.modal-confirm:hover {
-  background: var(--error-hover-bg);
-  border-color: var(--error-hover-border);
-}
-
-.modal-confirm:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px rgba(224, 87, 87, 0.35);
-}
-
-@media (prefers-reduced-motion: reduce) {
-
-  .modal-overlay,
-  .modal-dialog {
-    animation: none;
-  }
 }
 
 @media (prefers-reduced-motion: reduce) {

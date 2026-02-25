@@ -709,21 +709,68 @@ function handleVariantCopy(e) {
   if (name) {
     navigator.clipboard.writeText(name);
     addToCopyHistory(label || "", name);
-    showToast("복사되었어요", name);
+    showToast("복사했어요", name);
     markCopied("output-" + index);
   }
 }
 
 function handleCopyLink() {
   navigator.clipboard.writeText(location.href);
-  showToast("공유용 링크가 복사되었어요");
+  showToast("공유 링크를 복사했어요");
   markCopied("link");
 }
 
 function handleCopyAll() {
   if (!currentVariants.length) return;
   navigator.clipboard.writeText(currentVariants.map((v) => v.name).join("\n"));
-  showToast("모두 복사되었어요");
+  showToast("전체를 복사했어요");
+}
+
+function focusMissingField(fieldKey) {
+  const s = state.get();
+  if (!fieldKey) return;
+
+  if (fieldKey === "identifier") {
+    if (s.openDropdown) clearFilter(s.openDropdown);
+    state.set({ ...s, openDropdown: null });
+    setTimeout(() => {
+      const input = document.querySelector(".field-input");
+      if (input) input.focus();
+    }, 0);
+    return;
+  }
+
+  if (fieldKey === "subConcept" && !CONCEPTS_WITH_SUBCONCEPT.has(s.concept)) {
+    return;
+  }
+
+  if (s.openDropdown && s.openDropdown !== fieldKey) clearFilter(s.openDropdown);
+  delete dropdownHighlight[fieldKey];
+  state.set({ ...state.get(), openDropdown: fieldKey });
+
+  // Target the exact field's trigger/menu to avoid focusing the wrong dropdown.
+  const focusTarget = () => {
+    const trigger = document.getElementById(`dropdown-trigger-${fieldKey}`);
+    const menu = document.getElementById(`dropdown-menu-${fieldKey}`);
+    if (!trigger || !menu) return false;
+    trigger.focus();
+    const input = menu.querySelector(".dropdown-search-input");
+    if (input) input.focus();
+    trigger.scrollIntoView({ block: "nearest" });
+    return true;
+  };
+
+  setTimeout(() => {
+    if (focusTarget()) return;
+    setTimeout(focusTarget, 16);
+  }, 0);
+}
+
+function handleMissingFieldClick(e) {
+  e.preventDefault();
+  e.stopPropagation();
+  const fieldKey = e.currentTarget.getAttribute("data-field-key");
+  focusMissingField(fieldKey);
 }
 
 let shortcutsOpen = false;
@@ -748,7 +795,7 @@ function handleHistoryItemCopy(e) {
   const index = e.currentTarget.getAttribute("data-copy-index");
   if (name) {
     navigator.clipboard.writeText(name);
-    showToast("복사되었어요", name);
+    showToast("복사했어요", name);
     markCopied("history-" + index);
   }
 }
@@ -877,7 +924,7 @@ document.addEventListener("keydown", (e) => {
     const variant = currentVariants[idx - 1];
     navigator.clipboard.writeText(variant.name);
     addToCopyHistory(variant.label, variant.name);
-    showToast("복사되었어요", variant.name);
+    showToast("복사했어요", variant.name);
     markCopied("output-" + (idx - 1));
   }
 });
@@ -897,7 +944,7 @@ function buildName(fields) {
   if (allEmpty) {
     return {
       status: "waiting",
-      message: "소재명이 여기에 나타나요. 태그를 채워보세요!",
+      message: "소재명이 여기에 표시돼요. 태그를 선택해 주세요!",
     };
   }
 
@@ -905,32 +952,40 @@ function buildName(fields) {
   if (!hasSubCategory && subConcept) {
     return {
       status: "error",
-      message: "⛔ 소분류 적용이 불가한 소재 컨셉이에요. 소분류를 비워주세요.",
+      message: "⛔ 이 소재 컨셉에는 세부 컨셉을 적용할 수 없어요. 세부 컨셉을 비워 주세요.",
     };
   }
 
-  // State 3: Missing required fields
+  // State 3: Blocking validations take priority over missing-field guidance
+  const warnings = getBlockingWarnings(fields);
+  if (warnings.length > 0) {
+    return { status: "invalid", warnings };
+  }
+
+  // State 4: Missing required fields
   const requiredFields = hasSubCategory
     ? [
-      { value: format, label: "포맷" },
-      { value: product, label: "제품" },
-      { value: concept, label: "소재 컨셉" },
-      { value: subConcept, label: "세부 컨셉" },
-      { value: identifier, label: "소재 별명" },
+      { key: "format", value: format, label: "포맷" },
+      { key: "product", value: product, label: "제품" },
+      { key: "concept", value: concept, label: "소재 컨셉" },
+      { key: "subConcept", value: subConcept, label: "세부 컨셉" },
+      { key: "identifier", value: identifier, label: "소재 별명" },
     ]
     : [
-      { value: format, label: "포맷" },
-      { value: product, label: "제품" },
-      { value: concept, label: "소재 컨셉" },
-      { value: identifier, label: "소재 별명" },
+      { key: "format", value: format, label: "포맷" },
+      { key: "product", value: product, label: "제품" },
+      { key: "concept", value: concept, label: "소재 컨셉" },
+      { key: "identifier", value: identifier, label: "소재 별명" },
     ];
 
-  const missing = requiredFields.filter((f) => !f.value).map((f) => f.label);
+  const missing = requiredFields
+    .filter((f) => !f.value)
+    .map(({ key, label }) => ({ key, label }));
   if (missing.length > 0) {
     return { status: "missing", missing };
   }
 
-  // State 4: Success — generate one variant per spec plus a no-spec variant
+  // State 5: Success — generate one variant per spec plus a no-spec variant
   const conceptPart = hasSubCategory ? `${concept}[${subConcept}]` : concept;
   const nameParts = [format, product, conceptPart, identifier, version];
   if (date) nameParts.push(date);
@@ -943,6 +998,27 @@ function buildName(fields) {
     })),
   ];
   return { status: "success", variants };
+}
+
+function getBlockingWarnings(fields) {
+  const { format, product, concept, subConcept, identifier, version, date } =
+    fields;
+  const hasSubCategory = CONCEPTS_WITH_SUBCONCEPT.has(concept);
+  const trimmedIdentifier = identifier.trim();
+  if (trimmedIdentifier && /^_+$/.test(trimmedIdentifier)) {
+    if (trimmedIdentifier.length >= 13) {
+      return ["밑줄 아트 감성은 좋지만, 소재 별명은 글자로 지어 주세요."];
+    }
+    return ["소재별명에 _는 사용할 수 없어요."];
+  }
+  if (identifier.includes("_")) {
+    return ["소재별명에 _는 사용할 수 없어요."];
+  }
+  const nonUnderscoreLength = trimmedIdentifier.replace(/_/g, "").length;
+  if (nonUnderscoreLength >= 13) {
+    return ["소재 별명은 12자 이하로 지어 주세요."];
+  }
+  return [];
 }
 
 // ============================================================
@@ -1077,7 +1153,7 @@ const CustomDropdown = (props) => {
           h("input", {
             className: "dropdown-search-input",
             type: "text",
-            placeholder: "검색",
+            placeholder: "검색어 입력",
             value: filterText,
             onInput: onFilterInput,
           }),
@@ -1258,6 +1334,7 @@ const InputField = (props) => {
     tooltip,
     suggestions,
     highlightIdx,
+    warnings,
   } = props;
   return h(
     "div",
@@ -1314,9 +1391,33 @@ const InputField = (props) => {
           ),
         )
         : null,
+      warnings && warnings.length > 0
+        ? h(InlineWarning, { warnings, className: "inline-input-warning" })
+        : null,
     ),
   );
 };
+
+const InlineWarning = ({ warnings, className = "" }) =>
+  h(
+    "button",
+    {
+      className: `output-warning-inline bulk-prompt-dropdown is-warning ${className}`.trim(),
+      type: "button",
+      tabIndex: -1,
+    },
+    h("span", { className: "material-symbols-rounded" }, "warning"),
+    h(
+      "span",
+      { className: "output-warning-parts bulk-prompt-parts" },
+      ...warnings.flatMap((msg, i) => [
+        ...(i > 0
+          ? [h("span", { className: "output-warning-sep bulk-prompt-sep" }, "·")]
+          : []),
+        h("span", { className: "output-warning-part bulk-prompt-part" }, msg),
+      ]),
+    ),
+  );
 
 const OutputDisplay = (props) => {
   const { result } = props;
@@ -1328,18 +1429,35 @@ const OutputDisplay = (props) => {
     return h(
       "div",
       { className: "output output--missing" },
-      h("div", { className: "output-missing-label" }, "다음 태그를 채워주세요"),
+      h("div", { className: "output-missing-label" }, "다음 태그를 채워 주세요"),
       h(
         "div",
         { className: "output-missing-chips" },
-        ...result.missing.map((label) =>
-          h("span", { className: "output-missing-chip" }, label),
+        ...result.missing.map(({ key, label }) =>
+          h(
+            "button",
+            {
+              className: "output-missing-chip",
+              type: "button",
+              "data-field-key": key,
+              onClick: handleMissingFieldClick,
+              title: `${label} 입력으로 이동`,
+            },
+            label,
+          ),
         ),
       ),
     );
   }
   if (result.status === "error") {
     return h("div", { className: "output output--error" }, result.message);
+  }
+  if (result.status === "invalid") {
+    return h(
+      "div",
+      { className: "output output--error" },
+      "소재 별명을 수정하면 소재명을 생성할 수 있어요.",
+    );
   }
 
   return h(
@@ -1381,7 +1499,7 @@ const OutputDisplay = (props) => {
         "button",
         { className: "copy-all-btn", onClick: handleCopyAll, type: "button" },
         h("span", { className: "material-symbols-rounded" }, "content_copy"),
-        "모두 복사하기",
+        "전체 복사",
       ),
     ),
   );
@@ -1421,11 +1539,11 @@ const ShareSection = () =>
   h(
     "div",
     { className: "share-section" },
-    h("p", { className: "share-heading" }, "광고 소재 이름이 생성되었어요!"),
+    h("p", { className: "share-heading" }, "소재명이 생성됐어요!"),
     h(
       "p",
       { className: "share-subtext" },
-      "링크를 공유하면 공유 받은 사람도 같은 소재명을 바로 확인할 수 있어요",
+      "링크를 공유하면 공유받은 사람도 같은 소재명을 바로 확인할 수 있어요",
     ),
     h(
       "div",
@@ -1474,10 +1592,10 @@ const CopyHistoryCard = (props) => {
           onClick: handleClearHistoryClick,
           tabIndex: -1,
           type: "button",
-          title: "기록 지우기",
+          title: "내역 삭제",
         },
         h("span", { className: "material-symbols-rounded" }, "delete_sweep"),
-        "모두 지우기",
+        "전체 삭제",
       ),
     ),
     h(
@@ -1696,11 +1814,11 @@ const ClearHistoryModal = () =>
     h(
       "div",
       { className: "modal-dialog" },
-      h("h2", { className: "modal-title" }, "최근 복사 내역을 모두 지울까요?"),
+      h("h2", { className: "modal-title" }, "최근 복사 내역을 모두 삭제할까요?"),
       h(
         "p",
         { className: "modal-body" },
-        "삭제한 복사 내역은 되돌릴 수 없어요",
+        "삭제한 내역은 복구할 수 없어요",
       ),
       h(
         "div",
@@ -1721,7 +1839,7 @@ const ClearHistoryModal = () =>
             className: "modal-confirm",
             onClick: handleConfirmClearHistory,
           },
-          "모두 지우기",
+          "전체 삭제",
         ),
       ),
     ),
@@ -1734,6 +1852,7 @@ function App() {
   const subConceptOptions = subConceptEntry?.options ?? [];
   const subConceptGroups = subConceptEntry?.groups ?? null;
   const result = buildName(s);
+  const blockingWarnings = getBlockingWarnings(s);
   currentVariants = result.status === "success" ? result.variants : [];
   const anyFilled = !!(s.format || s.product || s.concept || s.identifier);
 
@@ -1767,7 +1886,7 @@ function App() {
           h(
             "p",
             { className: "app-subtitle" },
-            "몇 가지 선택만으로 광고 소재명을 빠르게 만들어드려요",
+            "몇 가지 선택만으로 광고 소재명을 빠르게 만들 수 있어요",
           ),
         ),
         h("div", { className: "divider" }),
@@ -1784,7 +1903,7 @@ function App() {
             onToggle: toggleFormat,
             onMenuClick: handleFormatMenuClick,
             onClear: handleClearFormat,
-            tooltip: "소재의 파일 유형을 선택해요",
+            tooltip: "소재의 파일 유형을 선택해 주세요",
             activeDescendantId:
               s.openDropdown === "format" ? activeDescendantId : undefined,
           }),
@@ -1798,7 +1917,7 @@ function App() {
             onToggle: toggleProduct,
             onMenuClick: handleProductMenuClick,
             onClear: handleClearProduct,
-            tooltip: "소재가 실제로 노출하는 상품을 선택해요",
+            tooltip: "소재가 실제로 노출하는 상품을 선택해 주세요",
             searchable: true,
             onFilterInput: handleProductFilterInput,
           }),
@@ -1811,7 +1930,7 @@ function App() {
             onToggle: toggleConcept,
             onMenuClick: handleConceptMenuClick,
             onClear: handleClearConcept,
-            tooltip: "소재의 중심이 되는 컨셉을 선택해요",
+            tooltip: "소재의 중심이 되는 컨셉을 선택해 주세요",
             searchable: true,
             onFilterInput: handleConceptFilterInput,
             subOptions: CONCEPTS_WITH_SUBCONCEPT,
@@ -1853,6 +1972,7 @@ function App() {
               ? getIdentifierSuggestions()
               : [],
             highlightIdx: identifierHighlight,
+            warnings: blockingWarnings.length > 0 ? blockingWarnings : null,
           }),
           h(VersionStepper, {
             value: s.version,

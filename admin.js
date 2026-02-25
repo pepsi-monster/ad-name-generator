@@ -194,11 +194,11 @@ function markDirty() {
 
   const submitBtn = document.getElementById("submit-btn");
   if (isChanged) {
-    document.title = "* 데이터 편집 — APPSILON";
+    document.title = "* 태그 관리 — APPSILON";
     submitBtn?.classList.add("dirty");
     localStorage.setItem("ad-name-generator-draft", JSON.stringify({ version: 2, data, undoStack }));
   } else {
-    document.title = "데이터 편집 — APPSILON";
+    document.title = "태그 관리 — APPSILON";
     submitBtn?.classList.remove("dirty");
     localStorage.removeItem("ad-name-generator-draft");
   }
@@ -1358,108 +1358,148 @@ function EditorPanel() {
       "div",
       { className: "editor-empty" },
       h(
-        "div",
-        { className: "empty-state-card" },
-        h("h2", { className: "empty-state-title" }, "환영합니다!"),
+        "section",
+        { className: "onboarding-shell" },
+        h("p", { className: "onboarding-eyebrow" }, "태그 관리 가이드"),
+        h("h2", { className: "onboarding-title" }, "소재명 품질을 높이는 태그 관리"),
         h(
           "p",
-          { className: "empty-state-desc" },
-          "소재명을 구성하는 태그들을 완벽하게 관리해보세요.",
-          h("br"),
-          "4단계로 쉽게 시작할 수 있어요.",
+          { className: "onboarding-lead" },
+          "실무에서 바로 쓰는 순서와 규칙만 간단히 정리했어요.",
         ),
         h(
           "div",
-          { className: "empty-state-steps" },
-          // Step 1
+          { className: "onboarding-grid" },
           h(
-            "div",
-            { className: "empty-state-step" },
+            "article",
+            { className: "onboarding-card onboarding-card--apply" },
             h(
-              "div",
-              { className: "step-icon" },
-              h(
-                "span",
-                { className: "material-symbols-rounded step-icon-flip" },
-                "touch_app",
-              ),
+              "h3",
+              { className: "onboarding-card-title" },
+              h("span", { className: "material-symbols-rounded" }, "info"),
+              "적용 범위와 저장 방식",
             ),
             h(
-              "div",
-              { className: "step-content" },
-              h("div", { className: "step-title" }, "태그 선택하기"),
+              "ul",
+              { className: "onboarding-list" },
+              h("li", null, "작업 내역은 자동으로 로컬 임시 저장 상태로 보관돼요."),
+              h("li", null, "상단 저장 버튼으로 서버에 저장해야 생성기에 반영돼요."),
+              h("li", null, "저장 버튼은 서버 원본과 다른 변경이 있을 때만 활성화돼요."),
+              h("li", null, "우상단의 작업 내역 버튼에서 저장 전 변경 사항을 확인할 수 있어요."),
+            ),
+          ),
+          h(
+            "article",
+            { className: "onboarding-card onboarding-card--flow" },
+            h(
+              "h3",
+              { className: "onboarding-card-title" },
+              h("span", { className: "material-symbols-rounded" }, "checklist"),
+              "권장 작업 순서",
+            ),
+            h(
+              "ol",
+              { className: "onboarding-list" },
               h(
-                "div",
-                { className: "step-desc" },
-                "왼쪽 사이드바에서 브랜드, 컨셉, 세부 컨셉 중 하나를 클릭하세요.",
+                "li",
+                null,
+                h("strong", null, "브랜드"),
+                "를 추가하고 하위 ",
+                h("strong", null, "제품"),
+                "을 입력해요.",
+              ),
+              h(
+                "li",
+                null,
+                h("strong", null, "컨셉 그룹"),
+                "을 만들고 컨셉 태그를 등록해요.",
+              ),
+              h(
+                "li",
+                null,
+                "필요한 컨셉에 ",
+                h("strong", null, "세부 컨셉 그룹"),
+                "과 세부 컨셉을 연결해요.",
+              ),
+              h(
+                "li",
+                null,
+                "순서를 정리한 뒤 상단 ",
+                h("strong", null, "저장"),
+                "으로 반영해요.",
               ),
             ),
           ),
-          // Step 2
           h(
-            "div",
-            { className: "empty-state-step" },
+            "article",
+            { className: "onboarding-card onboarding-card--tips" },
             h(
-              "div",
-              { className: "step-icon" },
-              h("span", { className: "material-symbols-rounded" }, "edit"),
+              "h3",
+              { className: "onboarding-card-title" },
+              h("span", { className: "material-symbols-rounded" }, "tips_and_updates"),
+              "빠른 입력 팁",
             ),
             h(
-              "div",
-              { className: "step-content" },
-              h("div", { className: "step-title" }, "편집 및 관리"),
+              "ul",
+              { className: "onboarding-list" },
               h(
-                "div",
-                { className: "step-desc" },
-                "새로운 태그를 추가하거나 이름을 변경하고, 드래그 앤 드롭으로 자유롭게 순서를 변경할 수 있어요.",
-              ),
-            ),
-          ),
-          // Step 3
-          h(
-            "div",
-            { className: "empty-state-step" },
-            h(
-              "div",
-              { className: "step-icon" },
-              h(
-                "span",
-                { className: "material-symbols-rounded" },
-                "playlist_add",
-              ),
-            ),
-            h(
-              "div",
-              { className: "step-content" },
-              h("div", { className: "step-title" }, "여러 태그 한번에 추가"),
-              h(
-                "div",
-                { className: "step-desc" },
+                "li",
+                null,
                 h("code", null, "태그1;태그2;태그3"),
-                " 처럼 세미콜론으로 구분해 입력하면 여러 태그를 한번에 추가할 수 있어요.",
+                " 형태로 입력하면 여러 항목을 한 번에 추가할 수 있어요.",
               ),
-            ),
-          ),
-          // Step 4
-          h(
-            "div",
-            { className: "empty-state-step" },
-            h(
-              "div",
-              { className: "step-icon" },
-              h("span", { className: "material-symbols-rounded" }, "lightbulb"),
-            ),
-            h(
-              "div",
-              { className: "step-content" },
-              h("div", { className: "step-title" }, "완벽한 소재명"),
               h(
-                "div",
-                { className: "step-desc" },
-                "연관된 키워드들을 그룹화하여 일관성 있는 완벽한 광고 소재명을 만들어보세요.",
+                "li",
+                null,
+                "칩을 드래그해 노출 순서를 바로 정리할 수 있어요.",
+              ),
+              h(
+                "li",
+                null,
+                h("strong", null, "Cmd/Ctrl + Z"),
+                " 로 최근 변경을 되돌릴 수 있어요.",
+              ),
+              h(
+                "li",
+                null,
+                "오른쪽 작업 내역에서 이전 상태로 복원할 수 있어요.",
+              ),
+              h(
+                "li",
+                null,
+                "태그명 예시: ",
+                h("code", null, "보습"),
+                ", ",
+                h("code", null, "성분소개"),
+                ", ",
+                h("code", null, "할인율"),
               ),
             ),
           ),
+          h(
+            "article",
+            { className: "onboarding-card onboarding-card--rules" },
+            h(
+              "h3",
+              { className: "onboarding-card-title" },
+              h("span", { className: "material-symbols-rounded" }, "rule"),
+              "운영 권장 규칙",
+            ),
+            h(
+              "ul",
+              { className: "onboarding-list" },
+              h("li", null, "태그는 짧고 중복 없이 유지해요."),
+              h("li", null, "의미가 겹치는 태그는 하나로 통일해요."),
+              h("li", null, "같은 레벨에서는 동일한 태그명을 중복 생성하지 않아요."),
+              h("li", null, "브랜드/컨셉 분류 기준은 팀 내에서 고정해요."),
+              h("li", null, "저장 전 작업 내역으로 변경 범위를 확인해요."),
+            ),
+          ),
+        ),
+        h(
+          "p",
+          { className: "onboarding-footnote" },
+          "왼쪽 트리에서 항목을 선택하면 상세 편집 화면으로 이동해요.",
         ),
       ),
     );
@@ -1516,7 +1556,7 @@ function ProductGroupEditor(gi) {
       h(
         "p",
         { className: "editor-subtitle" },
-        "각 브랜드별 소재가 홍보하는 제품을 입력해요. 소재명의 두 번째 자리에 들어가는 태그예요",
+        "브랜드별로 홍보할 제품을 입력해요. 소재명의 두 번째 자리에 들어가는 태그예요.",
       ),
     ),
     h("hr", { className: "editor-divider" }),
@@ -1529,7 +1569,7 @@ function ProductGroupEditor(gi) {
         h(
           "p",
           { className: "editor-hint" },
-          "드래그해서 순서를 바꾸고, 클릭해서 이름을 수정할 수 있어요",
+          "드래그해 순서를 바꾸고, 클릭해 이름을 수정할 수 있어요.",
         ),
         h(
           "div",
@@ -1596,15 +1636,15 @@ function ConceptGroupEditor(gi) {
       h(
         "p",
         { className: "editor-subtitle" },
-        "컨셉은 소재 분석에 있어 가장 중요한 인덱스 중 하나에요. ",
+        "컨셉은 소재 분석의 핵심 인덱스예요. ",
         h("span", { className: "text-highlight" }, "컨셉"),
         " 그리고 ",
         h("span", { className: "text-highlight" }, "세부 컨셉"),
-        "의 2단계로 나누어 분석할 수 있게끔 구성해요. ",
+        "의 2단계로 나누어 분석할 수 있도록 구성해요. ",
         h("span", { className: "text-highlight" }, "컨셉 그룹"),
-        " 과 ",
+        "과 ",
         h("span", { className: "text-highlight" }, "세부 컨셉 그룹"),
-        " 은 편의를 위한 구분이며 실제 소재명에 적용되지는 않아요",
+        " 은 편의를 위한 구분이며 실제 소재명에는 적용되지 않아요.",
       ),
     ),
     h("hr", { className: "editor-divider" }),
@@ -1617,7 +1657,7 @@ function ConceptGroupEditor(gi) {
         h(
           "p",
           { className: "editor-hint" },
-          "드래그해서 순서를 바꾸고, 세부 뱃지를 클릭하면 세부 컨셉 편집 페이지로 이동해요.",
+          "드래그해 순서를 바꾸고, 세부 배지를 클릭하면 세부 컨셉 편집 화면으로 이동해요.",
         ),
         h(
           "div",
@@ -1717,7 +1757,7 @@ function ConceptItemEditor(ci, gi) {
       h(
         "p",
         { className: "editor-subtitle" },
-        "세부 컨셉 그룹과 그 아래의 세부 컨셉들을 자유롭게 설정해보세요",
+        "세부 컨셉 그룹과 하위 세부 컨셉을 자유롭게 설정해 보세요.",
       ),
     ),
     h("hr", { className: "editor-divider" }),
@@ -1893,12 +1933,12 @@ function Modal() {
   let title, bodyText, confirmLabel, confirmClass, confirmAction;
 
   if (action === "restore-history") {
-    title = "과거 시점으로 되돌릴까요?";
+    title = "선택한 시점으로 되돌릴까요?";
     bodyText = [
-      "선택하신 시점으로 전체 상태를 복구해요",
+      "선택한 시점으로 전체 상태를 복구해요.",
       h("br"),
       "이후에 작업한 내역은 ",
-      h("strong", { style: "font-weight: 600; color: var(--text)" }, "모두 삭제되요")
+      h("strong", { style: "font-weight: var(--font-semibold); color: var(--text)" }, "모두 삭제돼요")
     ];
     confirmLabel = "되돌리기";
     confirmClass = "modal-confirm"; // Change from primary to danger
@@ -1911,7 +1951,7 @@ function Modal() {
     bodyText = [
       subject ? h("span", { className: "modal-subject" }, subject) : `이 ${typeLabel}`,
       subject ? ` ${typeLabel}을(를)` : "을(를)",
-      " 삭제하게 돼요"
+      " 삭제돼요"
     ];
     confirmLabel = "삭제";
     confirmClass = "modal-confirm";
@@ -1979,15 +2019,15 @@ function SubmitModal() {
     h(
       "div",
       { className: "modal-dialog" },
-      h("h2", { className: "modal-title" }, "변경 사항을 저장할까요?"),
+      h("h2", { className: "modal-title" }, "변경 내용을 저장할까요?"),
       h(
         "p",
         { className: "modal-body" },
         submitting
-          ? "서버에 저장 중이에요..."
+          ? "서버에 저장하는 중이에요..."
           : submitError
             ? submitError
-            : "수정한다고 고생하셨어요!",
+            : "변경 내용을 서버에 저장할까요?",
       ),
       h(
         "div",
@@ -2111,7 +2151,7 @@ function HistoryPanel() {
         );
       }),
       undoStack.length > 0
-        ? h("div", { className: "history-hint" }, "항목을 클릭하면 해당 시점으로 되돌아가요")
+        ? h("div", { className: "history-hint" }, "항목을 클릭하면 해당 시점으로 돌아가요.")
         : null
     ),
   );
@@ -2220,7 +2260,7 @@ fetch("data.json")
           serverLoadTime = Date.now();
           markDirty();
           setTimeout(() => {
-            toastMsg = "최근 작업 내역을 불러왔어요";
+            toastMsg = "최근 작업 내역을 복원했어요.";
             rerender();
             setTimeout(() => { toastMsg = null; rerender(); }, 4000);
           }, 500);
@@ -2237,5 +2277,5 @@ fetch("data.json")
   })
   .catch(() => {
     document.getElementById("admin-main").textContent =
-      "data.json을 불러오지 못했어요. 파일이 존재하는지 확인해주세요.";
+      "data.json을 불러오지 못했어요. 파일 경로를 확인해 주세요.";
   });
