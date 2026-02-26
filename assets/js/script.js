@@ -2074,7 +2074,7 @@ function App() {
 // INIT
 // ============================================================
 
-fetch("data.json")
+fetch("/assets/data/data.json")
   .then((r) => r.json())
   .then((data) => {
     FORMAT_OPTIONS = data.format;

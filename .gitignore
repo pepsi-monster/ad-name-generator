@@ -15,6 +15,8 @@ yarn-error.log
 # IDEs and Editors
 .vscode/
 .idea/
+.claude/
+.cluade/
 *.suo
 *.ntvs*
 *.njsproj
@@ -27,6 +29,19 @@ yarn-error.log
 .env.development.local
 .env.test.local
 .env.production.local
+.env.*
+!.env.example
+!.env.*.example
 
 # Vercel
 .vercel/
+
+# Local secret/config files
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+secrets/
+config/secrets.*

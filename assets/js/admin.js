@@ -2194,21 +2194,33 @@ async function submitData() {
   submitError = null;
   rerender();
   try {
-    // TODO: Replace with actual endpoint URL
-    // TODO: Add auth headers, e.g.: Authorization: `Bearer ${TOKEN}`
-    const res = await fetch("https://TODO_REPLACE_WITH_ENDPOINT", {
-      method: "POST",
+    const res = await fetch("/api/config", {
+      method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
+      body: JSON.stringify({ data }),
     });
-    if (!res.ok) throw new Error(`서버 오류 (${res.status})`);
+    if (!res.ok) {
+      let msg = `서버 오류 (${res.status})`;
+      try {
+        const payload = await res.json();
+        if (payload?.error) msg = payload.error;
+      } catch (e) {
+        // ignore parse error and keep generic message
+      }
+      throw new Error(msg);
+    }
 
-    originalData = JSON.parse(JSON.stringify(data));
+    const saved = await res.json();
+    const nextData = saved?.data && typeof saved.data === "object" ? saved.data : data;
+
+    originalData = JSON.parse(JSON.stringify(nextData));
+    data = JSON.parse(JSON.stringify(nextData));
     dirty = false;
     submitPending = false;
     submitting = false;
     document.getElementById("submit-btn")?.classList.remove("dirty");
     localStorage.removeItem("ad-name-generator-draft");
+    serverLoadTime = Date.now();
     rerender();
   } catch (err) {
     submitError = err.message || "저장에 실패했어요. 다시 시도해주세요.";
@@ -2233,9 +2245,23 @@ document.addEventListener("keydown", function (e) {
 
 document.addEventListener("click", onAppClick);
 
-fetch("data.json")
-  .then((r) => r.json())
-  .then((d) => {
+async function loadInitialData() {
+  try {
+    const res = await fetch("/api/config");
+    if (!res.ok) throw new Error(`config api failed (${res.status})`);
+    const payload = await res.json();
+    return payload?.data;
+  } catch (apiErr) {
+    const fallback = await fetch("/assets/data/data.json");
+    if (!fallback.ok) throw apiErr;
+    return fallback.json();
+  }
+}
+
+loadInitialData()
+  .then((loaded) => {
+    const d = loaded;
+    if (!d || typeof d !== "object") throw new Error("유효한 데이터를 불러오지 못했어요.");
     originalData = JSON.parse(JSON.stringify(d));
     const draftStr = localStorage.getItem("ad-name-generator-draft");
     if (draftStr) {
@@ -2277,5 +2303,5 @@ fetch("data.json")
   })
   .catch(() => {
     document.getElementById("admin-main").textContent =
-      "data.json을 불러오지 못했어요. 파일 경로를 확인해 주세요.";
+      "초기 데이터를 불러오지 못했어요. API 또는 data.json 경로를 확인해 주세요.";
   });
