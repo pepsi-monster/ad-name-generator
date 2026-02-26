@@ -76,19 +76,11 @@ function getToastPortalEl() {
 
 function renderToastPortal() {
   const el = getToastPortalEl();
-  const lastAction =
-    undoStack.length > 0 ? undoStack[undoStack.length - 1].desc : null;
   el.innerHTML = "";
   const label = document.createElement("div");
   label.className = "toast-label";
   label.textContent = toastMsg || "";
   el.appendChild(label);
-  if (lastAction) {
-    const action = document.createElement("div");
-    action.className = "toast-action";
-    action.textContent = String(lastAction);
-    el.appendChild(action);
-  }
   requestAnimationFrame(() => {
     el.classList.add("toast--visible");
   });
