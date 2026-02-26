@@ -2399,6 +2399,11 @@ async function loadInitialData(seedCache = null) {
     writeConfigCache(fresh);
     return fresh.data;
   } catch (apiErr) {
+    // If server check fails transiently, use any valid cached config as last resort.
+    if (cached?.data && isValidConfigData(cached.data)) {
+      writeConfigCache(cached);
+      return cached.data;
+    }
     const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
     if (isLocal) {
       const fallback = await fetch("/assets/data/data.json");
@@ -2414,6 +2419,65 @@ async function loadInitialData(seedCache = null) {
       return fallbackData;
     }
     throw apiErr;
+  }
+}
+
+let adminRevalidateInFlight = false;
+
+async function revalidateAdminConfig(force = false) {
+  if (adminRevalidateInFlight) return;
+  if (!force && document.visibilityState === "hidden") return;
+  // Do not clobber local edits while user has unsaved changes.
+  if (dirty || submitting || submitPending || confirmPending) return;
+  adminRevalidateInFlight = true;
+  try {
+    const meta = await fetchConfigMeta();
+    if (
+      loadedConfigVersion !== null &&
+      Number(meta.version) === Number(loadedConfigVersion)
+    ) {
+      return;
+    }
+    const cached = readConfigCache();
+    if (
+      cached &&
+      Number(cached.version) === Number(meta.version) &&
+      isValidConfigData(cached.data)
+    ) {
+      loadedConfigVersion = cached.version;
+      originalData = JSON.parse(JSON.stringify(cached.data));
+      data = JSON.parse(JSON.stringify(cached.data));
+      undoStack.length = 0;
+      serverLoadTime = Date.now();
+      dirty = false;
+      document.title = "태그 관리 — APPSILON";
+      document.getElementById("submit-btn")?.classList.remove("dirty");
+      writeConfigCache(cached);
+      rerender();
+      return;
+    }
+    const fresh = await fetchConfigWithOptionalEtag(cached);
+    loadedConfigVersion = fresh.version ?? loadedConfigVersion;
+    writeConfigCache(fresh);
+    originalData = JSON.parse(JSON.stringify(fresh.data));
+    data = JSON.parse(JSON.stringify(fresh.data));
+    undoStack.length = 0;
+    serverLoadTime = Date.now();
+    dirty = false;
+    document.title = "태그 관리 — APPSILON";
+    document.getElementById("submit-btn")?.classList.remove("dirty");
+    toastMsg = "최신 태그 설정을 반영했어요.";
+    rerender();
+    setTimeout(() => {
+      if (toastMsg === "최신 태그 설정을 반영했어요.") {
+        toastMsg = null;
+        rerender();
+      }
+    }, 3000);
+  } catch (e) {
+    // Keep current UI as-is on background revalidation failure.
+  } finally {
+    adminRevalidateInFlight = false;
   }
 }
 
@@ -2461,6 +2525,11 @@ loadInitialData(bootstrapCache)
     undoStack.length = 0;
     serverLoadTime = Date.now();
     rerender();
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        revalidateAdminConfig(true);
+      }
+    });
   })
   .catch(() => {
     if (adminMainEl) {

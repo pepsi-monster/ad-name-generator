@@ -2259,6 +2259,11 @@ async function loadGeneratorConfig(seedCache = null) {
     writeConfigCache(fresh);
     return fresh.data;
   } catch (apiErr) {
+    // If server check fails transiently, use any valid cached config as last resort.
+    if (cached?.data && isValidConfigData(cached.data)) {
+      writeConfigCache(cached);
+      return cached.data;
+    }
     const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
     if (isLocal) {
       const fallback = await fetch("/assets/data/data.json");
@@ -2277,44 +2282,87 @@ async function loadGeneratorConfig(seedCache = null) {
   }
 }
 
-loadGeneratorConfig(bootstrapCache)
-  .then((data) => {
-    FORMAT_OPTIONS = data.format;
-    PRODUCT = parseMixedOptions(data.product);
-    CONCEPT = parseMixedOptions(data.concept.options);
-    CONCEPT_GROUPS = CONCEPT.groups;
-    CONCEPT_OPTIONS = CONCEPT.flat;
-    SUB_CONCEPT_MAP = Object.fromEntries(
-      Object.entries(data.concept.subConcepts).map(([name, def]) => {
-        const { flat, groups } = parseMixedOptions(def);
-        return [name, { options: flat, groups }];
-      }),
-    );
-    CONCEPTS_WITH_SUBCONCEPT = new Set(Object.keys(SUB_CONCEPT_MAP));
-    VERSION_OPTIONS = Array.from(
-      { length: data.versionMax },
-      (_, i) => `v${i + 1}`,
-    );
+let latestConfigVersion = bootstrapCache?.version ?? null;
+let generatorRevalidateInFlight = false;
 
-    const currentState = state.get();
-    const { next, dropped } = sanitizeStateByCurrentConfig(currentState);
-    const changed = URL_FIELDS.some((k) => next[k] !== currentState[k]);
-    if (changed) {
-      state.set({ ...currentState, ...next, openDropdown: null });
-    }
+function applyGeneratorConfig(data, opts = {}) {
+  const { announceSync = false } = opts;
+  FORMAT_OPTIONS = data.format;
+  PRODUCT = parseMixedOptions(data.product);
+  CONCEPT = parseMixedOptions(data.concept.options);
+  CONCEPT_GROUPS = CONCEPT.groups;
+  CONCEPT_OPTIONS = CONCEPT.flat;
+  SUB_CONCEPT_MAP = Object.fromEntries(
+    Object.entries(data.concept.subConcepts).map(([name, def]) => {
+      const { flat, groups } = parseMixedOptions(def);
+      return [name, { options: flat, groups }];
+    }),
+  );
+  CONCEPTS_WITH_SUBCONCEPT = new Set(Object.keys(SUB_CONCEPT_MAP));
+  VERSION_OPTIONS = Array.from({ length: data.versionMax }, (_, i) => `v${i + 1}`);
 
+  const currentState = state.get();
+  const { next, dropped } = sanitizeStateByCurrentConfig(currentState);
+  const changed = URL_FIELDS.some((k) => next[k] !== currentState[k]);
+  if (changed) {
+    state.set({ ...currentState, ...next, openDropdown: null });
+  }
+
+  if (!root) {
     if (pageContentEl) pageContentEl.innerHTML = "";
     root = createRoot(document.getElementById("page-content"));
     state.subscribe(() => {
       syncStateToURL(state.get());
       root.render(App());
     });
-    // Sync restored state to URL immediately (handles localStorage restore with no URL params)
     syncStateToURL(state.get());
     root.render(App());
-    if (dropped.length > 0) {
-      showToast(`${dropped.join(", ")} 값이 현재 목록에 없어 초기화했어요.`);
+  } else {
+    rerender();
+  }
+
+  if (dropped.length > 0) {
+    showToast(`${dropped.join(", ")} 값이 현재 목록에 없어 초기화했어요.`);
+  } else if (announceSync) {
+    showToast("최신 설정을 반영했어요.");
+  }
+}
+
+async function revalidateGeneratorConfig(force = false) {
+  if (generatorRevalidateInFlight) return;
+  if (!force && document.visibilityState === "hidden") return;
+  generatorRevalidateInFlight = true;
+  try {
+    const meta = await fetchConfigMeta();
+    if (latestConfigVersion !== null && Number(meta.version) === Number(latestConfigVersion)) {
+      return;
     }
+    const cached = readConfigCache();
+    if (cached && Number(cached.version) === Number(meta.version) && isValidConfigData(cached.data)) {
+      latestConfigVersion = cached.version;
+      writeConfigCache(cached);
+      return;
+    }
+    const fresh = await fetchConfigWithOptionalEtag(cached);
+    writeConfigCache(fresh);
+    latestConfigVersion = fresh.version ?? latestConfigVersion;
+    applyGeneratorConfig(fresh.data, { announceSync: true });
+  } catch (e) {
+    // Keep current UI as-is on background revalidation failure.
+  } finally {
+    generatorRevalidateInFlight = false;
+  }
+}
+
+loadGeneratorConfig(bootstrapCache)
+  .then((data) => {
+    latestConfigVersion = readConfigCache()?.version ?? latestConfigVersion;
+    applyGeneratorConfig(data);
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") {
+        revalidateGeneratorConfig(true);
+      }
+    });
   })
   .catch(() => {
     if (pageContentEl) {
