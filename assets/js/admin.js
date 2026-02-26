@@ -25,6 +25,8 @@ let bulkPrompt = null; // { active: boolean, parts: string[], label: string, dup
 let dupeWarning = null; // the duplicate value string when single chip input matches an existing item
 let historyOpen = false; // whether the history side panel is open
 let toastMsg = null; // toast notification message string, null when hidden
+let toastTimer = null;
+let toastHideTimer = null;
 let lastActionTime = Date.now(); // time of the most recent change
 const CONFIG_CACHE_KEY = "ad-gen-config-cache-v1";
 const SCOPED_CONFIG_CACHE_KEY = `${CONFIG_CACHE_KEY}:${location.origin}`;
@@ -49,6 +51,59 @@ function hasFreshCache(cache) {
   if (!cache) return false;
   if (!Number.isFinite(cache.cachedAt)) return false;
   return Date.now() - cache.cachedAt <= CONFIG_CACHE_MAX_AGE_MS;
+}
+
+function showToastMsg(msg, ttl = 3000) {
+  toastMsg = msg;
+  renderToastPortal();
+  if (toastTimer) clearTimeout(toastTimer);
+  if (toastHideTimer) clearTimeout(toastHideTimer);
+  toastTimer = setTimeout(() => {
+    hideToastPortal();
+    toastTimer = null;
+  }, ttl);
+}
+
+function getToastPortalEl() {
+  let el = document.getElementById("global-toast");
+  if (el) return el;
+  el = document.createElement("div");
+  el.id = "global-toast";
+  el.className = "toast";
+  document.body.appendChild(el);
+  return el;
+}
+
+function renderToastPortal() {
+  const el = getToastPortalEl();
+  const lastAction =
+    undoStack.length > 0 ? undoStack[undoStack.length - 1].desc : null;
+  el.innerHTML = "";
+  const label = document.createElement("div");
+  label.className = "toast-label";
+  label.textContent = toastMsg || "";
+  el.appendChild(label);
+  if (lastAction) {
+    const action = document.createElement("div");
+    action.className = "toast-action";
+    action.textContent = String(lastAction);
+    el.appendChild(action);
+  }
+  requestAnimationFrame(() => {
+    el.classList.add("toast--visible");
+  });
+}
+
+function hideToastPortal() {
+  toastMsg = null;
+  const el = document.getElementById("global-toast");
+  if (!el) return;
+  el.classList.remove("toast--visible");
+  toastHideTimer = setTimeout(() => {
+    const current = document.getElementById("global-toast");
+    if (current) current.innerHTML = "";
+    toastHideTimer = null;
+  }, 220);
 }
 
 // ─── Undo ─────────────────────────────────────────────────────
@@ -2041,17 +2096,6 @@ function Modal() {
 
 // ─── Draft restore modal ──────────────────────────────────────
 
-function Toast() {
-  const visible = Boolean(toastMsg);
-  const lastAction = visible && undoStack.length > 0 ? undoStack[undoStack.length - 1].desc : null;
-  return h(
-    "div",
-    { className: "toast" + (visible ? " toast--visible" : "") },
-    visible ? h("div", { className: "toast-label" }, toastMsg) : null,
-    lastAction ? h("div", { className: "toast-action" }, ...formatHistoryDesc(lastAction)) : null
-  );
-}
-
 // ─── Submit confirmation modal ────────────────────────────────
 
 function SubmitModal() {
@@ -2223,7 +2267,6 @@ function App() {
       HistoryPanel(),
       confirmPending ? Modal() : null,
       submitPending ? SubmitModal() : null,
-      Toast(),
     ),
     Footer(),
   );
@@ -2275,6 +2318,7 @@ async function submitData() {
     } catch (e) {
       // Ignore localStorage write errors.
     }
+    showToastMsg("서버에 저장을 완료했어요!");
     rerender();
   } catch (err) {
     submitError = err.message || "저장에 실패했어요. 다시 시도해주세요.";
@@ -2466,14 +2510,7 @@ async function revalidateAdminConfig(force = false) {
     dirty = false;
     document.title = "태그 관리 — APPSILON";
     document.getElementById("submit-btn")?.classList.remove("dirty");
-    toastMsg = "최신 태그 설정을 반영했어요.";
-    rerender();
-    setTimeout(() => {
-      if (toastMsg === "최신 태그 설정을 반영했어요.") {
-        toastMsg = null;
-        rerender();
-      }
-    }, 3000);
+    showToastMsg("최신 태그 설정을 반영했어요.");
   } catch (e) {
     // Keep current UI as-is on background revalidation failure.
   } finally {
@@ -2511,9 +2548,7 @@ loadInitialData(bootstrapCache)
           serverLoadTime = Date.now();
           markDirty();
           setTimeout(() => {
-            toastMsg = "최근 작업 내역을 복원했어요.";
-            rerender();
-            setTimeout(() => { toastMsg = null; rerender(); }, 4000);
+            showToastMsg("최근 작업 내역을 복원했어요.", 4000);
           }, 500);
           return;
         }

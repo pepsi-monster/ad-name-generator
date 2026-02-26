@@ -486,7 +486,7 @@
 
 .toast-label {
   font-size: var(--text-xs);
-  color: var(--text-dim);
+  color: var(--text);
   margin-bottom: 0.25rem;
 }
 
