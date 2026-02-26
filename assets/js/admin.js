@@ -25,6 +25,7 @@ let bulkPrompt = null; // { active: boolean, parts: string[], label: string, dup
 let dupeWarning = null; // the duplicate value string when single chip input matches an existing item
 let historyOpen = false; // whether the history side panel is open
 let toastMsg = null; // toast notification message string, null when hidden
+let toastAction = null; // optional secondary action/history line
 let toastTimer = null;
 let toastHideTimer = null;
 let lastActionTime = Date.now(); // time of the most recent change
@@ -53,8 +54,16 @@ function hasFreshCache(cache) {
   return Date.now() - cache.cachedAt <= CONFIG_CACHE_MAX_AGE_MS;
 }
 
-function showToastMsg(msg, ttl = 3000) {
+function showToastMsg(msg, ttl = 3000, opts = {}) {
+  const includeLastAction = opts.includeLastAction !== false;
   toastMsg = msg;
+  if (opts.actionText !== undefined) {
+    toastAction = opts.actionText;
+  } else if (includeLastAction && undoStack.length > 0) {
+    toastAction = String(undoStack[undoStack.length - 1].desc || "");
+  } else {
+    toastAction = null;
+  }
   renderToastPortal();
   if (toastTimer) clearTimeout(toastTimer);
   if (toastHideTimer) clearTimeout(toastHideTimer);
@@ -81,13 +90,44 @@ function renderToastPortal() {
   label.className = "toast-label";
   label.textContent = toastMsg || "";
   el.appendChild(label);
+  if (toastAction) {
+    const action = document.createElement("div");
+    action.className = "toast-action";
+    appendToastActionNodes(action, String(toastAction));
+    el.appendChild(action);
+  }
   requestAnimationFrame(() => {
     el.classList.add("toast--visible");
   });
 }
 
+function appendToastActionNodes(container, desc) {
+  const parts = String(desc || "").split("'");
+  parts.forEach((part, i) => {
+    if (!part) return;
+    if (i % 2 === 1) {
+      const subject = document.createElement("span");
+      subject.className = "toast-action-subject";
+      subject.textContent = part;
+      container.appendChild(subject);
+      return;
+    }
+    const arrowParts = part.split(" → ");
+    arrowParts.forEach((chunk, j) => {
+      if (chunk) container.appendChild(document.createTextNode(chunk));
+      if (j < arrowParts.length - 1) {
+        const arrow = document.createElement("span");
+        arrow.className = "toast-action-arrow";
+        arrow.textContent = " → ";
+        container.appendChild(arrow);
+      }
+    });
+  });
+}
+
 function hideToastPortal() {
   toastMsg = null;
+  toastAction = null;
   const el = document.getElementById("global-toast");
   if (!el) return;
   el.classList.remove("toast--visible");
@@ -2310,7 +2350,9 @@ async function submitData() {
     } catch (e) {
       // Ignore localStorage write errors.
     }
-    showToastMsg("서버에 저장을 완료했어요!");
+    showToastMsg("서버에 저장을 완료했어요!", 3000, {
+      includeLastAction: false,
+    });
     rerender();
   } catch (err) {
     submitError = err.message || "저장에 실패했어요. 다시 시도해주세요.";

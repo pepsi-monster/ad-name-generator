@@ -1263,3 +1263,12 @@ body {
   color: var(--text-secondary);
   font-weight: var(--font-regular);
 }
+
+.toast-action-subject {
+  color: var(--text);
+  font-weight: var(--font-semibold);
+}
+
+.toast-action-arrow {
+  color: var(--text-muted);
+}
