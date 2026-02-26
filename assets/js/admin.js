@@ -27,11 +27,35 @@ let historyOpen = false; // whether the history side panel is open
 let toastMsg = null; // toast notification message string, null when hidden
 let lastActionTime = Date.now(); // time of the most recent change
 const CONFIG_CACHE_KEY = "ad-gen-config-cache-v1";
+const SCOPED_CONFIG_CACHE_KEY = `${CONFIG_CACHE_KEY}:${location.origin}`;
+const CONFIG_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+
+function isValidConfigData(v) {
+  return Boolean(
+    v &&
+      typeof v === "object" &&
+      Array.isArray(v.format) &&
+      Array.isArray(v.product) &&
+      v.concept &&
+      typeof v.concept === "object" &&
+      Array.isArray(v.concept.options) &&
+      v.concept.subConcepts &&
+      typeof v.concept.subConcepts === "object" &&
+      Number.isFinite(v.versionMax),
+  );
+}
+
+function hasFreshCache(cache) {
+  if (!cache) return false;
+  if (!Number.isFinite(cache.cachedAt)) return false;
+  return Date.now() - cache.cachedAt <= CONFIG_CACHE_MAX_AGE_MS;
+}
 
 // ─── Undo ─────────────────────────────────────────────────────
 const undoStack = [];
 const MAX_UNDO = 50;
 let serverLoadTime = Date.now();
+let loadedConfigVersion = null;
 
 function pushUndo(desc) {
   undoStack.push({ state: JSON.parse(JSON.stringify(data)), node: selectedNode ? { ...selectedNode } : null, desc, time: Date.now() });
@@ -181,11 +205,23 @@ function getLabelForType(type) {
 
 // ─── Root ────────────────────────────────────────────────────
 
-const root = createRoot(document.getElementById("admin-main"));
+let root = null;
+
+function ensureRoot() {
+  if (root) return root;
+  const container = document.getElementById("admin-main");
+  if (!container) return null;
+  // Our renderer appends into existing DOM; clear loading markup first.
+  container.innerHTML = "";
+  root = createRoot(container);
+  return root;
+}
 
 function rerender() {
   if (!data) return;
-  root.render(App());
+  const currentRoot = ensureRoot();
+  if (!currentRoot) return;
+  currentRoot.render(App());
 }
 
 function markDirty() {
@@ -2196,6 +2232,7 @@ function App() {
 // ─── Submit ───────────────────────────────────────────────────
 
 async function submitData() {
+  if (submitting) return;
   submitting = true;
   submitError = null;
   rerender();
@@ -2203,7 +2240,7 @@ async function submitData() {
     const res = await fetch("/api/config", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ data }),
+      body: JSON.stringify({ data, baseVersion: loadedConfigVersion }),
     });
     if (!res.ok) {
       let msg = `서버 오류 (${res.status})`;
@@ -2213,10 +2250,14 @@ async function submitData() {
       } catch (e) {
         // ignore parse error and keep generic message
       }
+      if (res.status === 409) {
+        throw new Error("다른 곳에서 먼저 저장됐어요. 새로고침 후 다시 저장해 주세요.");
+      }
       throw new Error(msg);
     }
 
     const saved = await res.json();
+    loadedConfigVersion = saved?.version ?? loadedConfigVersion;
     originalData = JSON.parse(JSON.stringify(data));
     dirty = false;
     submitPending = false;
@@ -2225,15 +2266,12 @@ async function submitData() {
     localStorage.removeItem("ad-name-generator-draft");
     serverLoadTime = Date.now();
     try {
-      localStorage.setItem(
-        CONFIG_CACHE_KEY,
-        JSON.stringify({
-          version: saved?.version ?? null,
-          updatedAt: saved?.updatedAt ?? null,
-          data,
-          etag: null,
-        }),
-      );
+      writeConfigCache({
+        version: saved?.version ?? null,
+        updatedAt: saved?.updatedAt ?? null,
+        data,
+        etag: res.headers.get("ETag") || null,
+      });
     } catch (e) {
       // Ignore localStorage write errors.
     }
@@ -2262,7 +2300,8 @@ document.addEventListener("keydown", function (e) {
 document.addEventListener("click", onAppClick);
 
 const adminMainEl = document.getElementById("admin-main");
-if (adminMainEl) {
+const bootstrapCache = readConfigCache();
+if (adminMainEl && !hasFreshCache(bootstrapCache)) {
   adminMainEl.innerHTML = `
     <div class="app-loading">
       <div class="app-loading-card">
@@ -2281,11 +2320,11 @@ if (adminMainEl) {
 
 function readConfigCache() {
   try {
-    const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+    const raw = localStorage.getItem(SCOPED_CONFIG_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    if (!parsed.data || typeof parsed.data !== "object") return null;
+    if (!isValidConfigData(parsed.data)) return null;
     return parsed;
   } catch (e) {
     return null;
@@ -2294,67 +2333,96 @@ function readConfigCache() {
 
 function writeConfigCache(cache) {
   try {
-    localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cache));
+    localStorage.setItem(
+      SCOPED_CONFIG_CACHE_KEY,
+      JSON.stringify({ ...cache, cachedAt: Date.now() }),
+    );
   } catch (e) {
     // Ignore localStorage write errors.
   }
 }
 
 async function fetchConfigMeta() {
-  const res = await fetch("/api/config-meta", { cache: "no-store" });
-  if (!res.ok) throw new Error(`config meta api failed (${res.status})`);
-  return res.json();
+  let lastErr = null;
+  for (let i = 0; i < 2; i++) {
+    try {
+      const res = await fetch("/api/config-meta", { cache: "no-store" });
+      if (!res.ok) throw new Error(`config meta api failed (${res.status})`);
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 160 * (i + 1)));
+    }
+  }
+  throw lastErr || new Error("config meta api failed");
 }
 
 async function fetchConfigWithOptionalEtag(cached) {
   const headers = {};
   if (cached?.etag) headers["If-None-Match"] = cached.etag;
-  const res = await fetch("/api/config", { headers, cache: "no-store" });
-  if (res.status === 304 && cached?.data) return cached;
-  if (!res.ok) throw new Error(`config api failed (${res.status})`);
-  const payload = await res.json();
-  if (!payload?.data || typeof payload.data !== "object") {
-    throw new Error("Invalid config payload");
+  let lastErr = null;
+  for (let i = 0; i < 2; i++) {
+    try {
+      const res = await fetch("/api/config", { headers, cache: "no-store" });
+      if (res.status === 304 && cached?.data) return cached;
+      if (!res.ok) throw new Error(`config api failed (${res.status})`);
+      const payload = await res.json();
+      if (!payload?.data || typeof payload.data !== "object") {
+        throw new Error("Invalid config payload");
+      }
+      return {
+        version: payload.version,
+        updatedAt: payload.updatedAt,
+        data: payload.data,
+        etag: res.headers.get("ETag") || null,
+      };
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 200 * (i + 1)));
+    }
   }
-  return {
-    version: payload.version,
-    updatedAt: payload.updatedAt,
-    data: payload.data,
-    etag: res.headers.get("ETag") || null,
-  };
+  throw lastErr || new Error("config api failed");
 }
 
-async function loadInitialData() {
-  const cached = readConfigCache();
+async function loadInitialData(seedCache = null) {
+  const cached = seedCache || readConfigCache();
+  if (hasFreshCache(cached)) {
+    return cached.data;
+  }
   try {
     const meta = await fetchConfigMeta();
     if (cached && Number(cached.version) === Number(meta.version)) {
+      writeConfigCache(cached);
       return cached.data;
     }
     const fresh = await fetchConfigWithOptionalEtag(cached);
     writeConfigCache(fresh);
     return fresh.data;
   } catch (apiErr) {
-    if (cached?.data) {
-      return cached.data;
+    const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
+    if (isLocal) {
+      const fallback = await fetch("/assets/data/data.json");
+      if (!fallback.ok) throw apiErr;
+      const fallbackData = await fallback.json();
+      if (!isValidConfigData(fallbackData)) throw apiErr;
+      writeConfigCache({
+        version: null,
+        updatedAt: null,
+        data: fallbackData,
+        etag: null,
+      });
+      return fallbackData;
     }
-    const fallback = await fetch("/assets/data/data.json");
-    if (!fallback.ok) throw apiErr;
-    const fallbackData = await fallback.json();
-    writeConfigCache({
-      version: null,
-      updatedAt: null,
-      data: fallbackData,
-      etag: null,
-    });
-    return fallbackData;
+    throw apiErr;
   }
 }
 
-loadInitialData()
+loadInitialData(bootstrapCache)
   .then((loaded) => {
     const d = loaded;
     if (!d || typeof d !== "object") throw new Error("유효한 데이터를 불러오지 못했어요.");
+    const meta = readConfigCache();
+    loadedConfigVersion = meta?.version ?? null;
     originalData = JSON.parse(JSON.stringify(d));
     const draftStr = localStorage.getItem("ad-name-generator-draft");
     if (draftStr) {

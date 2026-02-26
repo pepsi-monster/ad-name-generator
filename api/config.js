@@ -11,6 +11,22 @@ function makeEtag(row) {
   return `W/"cfg-${row?.id || 0}-${row?.version || 0}-${Number.isFinite(stamp) ? stamp : 0}"`;
 }
 
+function normalizeEtag(v) {
+  return String(v || "").trim().replace(/^W\//, "");
+}
+
+function ifNoneMatchHit(headerValue, currentEtag) {
+  if (!headerValue) return false;
+  const raw = String(headerValue).trim();
+  if (raw === "*") return true;
+  const candidates = raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const normalizedCurrent = normalizeEtag(currentEtag);
+  return candidates.some((candidate) => normalizeEtag(candidate) === normalizedCurrent);
+}
+
 function setCacheHeaders(res) {
   res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
 }
@@ -40,11 +56,16 @@ async function fetchConfigRow() {
 }
 
 async function updateConfigRow(id, payload) {
-  const url = `${SUPABASE_URL}/rest/v1/app_config?id=eq.${id}`;
+  const versionFilter = payload.base_version !== undefined
+    ? `&version=eq.${encodeURIComponent(payload.base_version)}`
+    : "";
+  const url = `${SUPABASE_URL}/rest/v1/app_config?id=eq.${id}${versionFilter}`;
+  const patchPayload = { ...payload };
+  delete patchPayload.base_version;
   const resp = await fetch(url, {
     method: "PATCH",
     headers: getSupabaseHeaders(true),
-    body: JSON.stringify(payload),
+    body: JSON.stringify(patchPayload),
   });
   if (!resp.ok) {
     const text = await resp.text();
@@ -52,7 +73,9 @@ async function updateConfigRow(id, payload) {
   }
   const rows = await resp.json();
   if (!Array.isArray(rows) || rows.length === 0) {
-    throw new Error("config update returned no rows");
+    const err = new Error("version_conflict");
+    err.code = "VERSION_CONFLICT";
+    throw err;
   }
   return rows[0];
 }
@@ -70,6 +93,19 @@ async function insertRevision(payload) {
   }
 }
 
+async function rollbackConfigRow(id, prev) {
+  const url = `${SUPABASE_URL}/rest/v1/app_config?id=eq.${id}`;
+  await fetch(url, {
+    method: "PATCH",
+    headers: getSupabaseHeaders(false),
+    body: JSON.stringify({
+      data: prev.data,
+      version: prev.version,
+      updated_at: prev.updated_at,
+    }),
+  });
+}
+
 module.exports = async function handler(req, res) {
   if (!SUPABASE_URL || !SUPABASE_SECRET_KEY) {
     return sendJson(res, 500, {
@@ -83,7 +119,7 @@ module.exports = async function handler(req, res) {
       const etag = makeEtag(row);
       setCacheHeaders(res);
       res.setHeader("ETag", etag);
-      if (req.headers["if-none-match"] && req.headers["if-none-match"] === etag) {
+      if (ifNoneMatchHit(req.headers["if-none-match"], etag)) {
         res.status(304).end();
         return;
       }
@@ -110,17 +146,23 @@ module.exports = async function handler(req, res) {
       const nextVersion = Number(base.version || 0) + 1;
       const now = new Date().toISOString();
       const updated = await updateConfigRow(base.id, {
+        base_version: body?.baseVersion ?? base.version,
         data: nextData,
         version: nextVersion,
         updated_at: now,
       });
 
-      await insertRevision({
-        config_id: base.id,
-        version: nextVersion,
-        data: nextData,
-        changed_at: now,
-      });
+      try {
+        await insertRevision({
+          config_id: base.id,
+          version: nextVersion,
+          data: nextData,
+          changed_at: now,
+        });
+      } catch (revisionErr) {
+        await rollbackConfigRow(base.id, base);
+        throw revisionErr;
+      }
 
       const etag = makeEtag(updated);
       setCacheHeaders(res);
@@ -131,6 +173,9 @@ module.exports = async function handler(req, res) {
         updatedAt: updated.updated_at,
       });
     } catch (err) {
+      if (err?.code === "VERSION_CONFLICT") {
+        return sendJson(res, 409, { error: "conflict: data changed on server, reload and retry" });
+      }
       return sendJson(res, 500, { error: err.message || "Failed to save config" });
     }
   }

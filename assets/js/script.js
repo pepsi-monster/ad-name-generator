@@ -2076,7 +2076,32 @@ function App() {
 
 const pageContentEl = document.getElementById("page-content");
 const CONFIG_CACHE_KEY = "ad-gen-config-cache-v1";
-if (pageContentEl) {
+const SCOPED_CONFIG_CACHE_KEY = `${CONFIG_CACHE_KEY}:${location.origin}`;
+const CONFIG_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
+
+function isValidConfigData(v) {
+  return Boolean(
+    v &&
+      typeof v === "object" &&
+      Array.isArray(v.format) &&
+      Array.isArray(v.product) &&
+      v.concept &&
+      typeof v.concept === "object" &&
+      Array.isArray(v.concept.options) &&
+      v.concept.subConcepts &&
+      typeof v.concept.subConcepts === "object" &&
+      Number.isFinite(v.versionMax),
+  );
+}
+
+function hasFreshCache(cache) {
+  if (!cache) return false;
+  if (!Number.isFinite(cache.cachedAt)) return false;
+  return Date.now() - cache.cachedAt <= CONFIG_CACHE_MAX_AGE_MS;
+}
+
+const bootstrapCache = readConfigCache();
+if (pageContentEl && !hasFreshCache(bootstrapCache)) {
   pageContentEl.innerHTML = `
     <div class="app-loading">
       <div class="app-loading-card">
@@ -2095,11 +2120,11 @@ if (pageContentEl) {
 
 function readConfigCache() {
   try {
-    const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+    const raw = localStorage.getItem(SCOPED_CONFIG_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return null;
-    if (!parsed.data || typeof parsed.data !== "object") return null;
+    if (!isValidConfigData(parsed.data)) return null;
     return parsed;
   } catch (e) {
     return null;
@@ -2108,64 +2133,91 @@ function readConfigCache() {
 
 function writeConfigCache(cache) {
   try {
-    localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cache));
+    localStorage.setItem(
+      SCOPED_CONFIG_CACHE_KEY,
+      JSON.stringify({ ...cache, cachedAt: Date.now() }),
+    );
   } catch (e) {
     // Ignore localStorage write errors.
   }
 }
 
 async function fetchConfigMeta() {
-  const res = await fetch("/api/config-meta", { cache: "no-store" });
-  if (!res.ok) throw new Error(`config meta api failed (${res.status})`);
-  return res.json();
+  let lastErr = null;
+  for (let i = 0; i < 2; i++) {
+    try {
+      const res = await fetch("/api/config-meta", { cache: "no-store" });
+      if (!res.ok) throw new Error(`config meta api failed (${res.status})`);
+      return await res.json();
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 160 * (i + 1)));
+    }
+  }
+  throw lastErr || new Error("config meta api failed");
 }
 
 async function fetchConfigWithOptionalEtag(cached) {
   const headers = {};
   if (cached?.etag) headers["If-None-Match"] = cached.etag;
-  const res = await fetch("/api/config", { headers, cache: "no-store" });
-  if (res.status === 304 && cached?.data) return cached;
-  if (!res.ok) throw new Error(`config api failed (${res.status})`);
-  const payload = await res.json();
-  if (!payload?.data || typeof payload.data !== "object") {
-    throw new Error("Invalid config payload");
+  let lastErr = null;
+  for (let i = 0; i < 2; i++) {
+    try {
+      const res = await fetch("/api/config", { headers, cache: "no-store" });
+      if (res.status === 304 && cached?.data) return cached;
+      if (!res.ok) throw new Error(`config api failed (${res.status})`);
+      const payload = await res.json();
+      if (!payload?.data || typeof payload.data !== "object") {
+        throw new Error("Invalid config payload");
+      }
+      return {
+        version: payload.version,
+        updatedAt: payload.updatedAt,
+        data: payload.data,
+        etag: res.headers.get("ETag") || null,
+      };
+    } catch (err) {
+      lastErr = err;
+      await new Promise((r) => setTimeout(r, 200 * (i + 1)));
+    }
   }
-  return {
-    version: payload.version,
-    updatedAt: payload.updatedAt,
-    data: payload.data,
-    etag: res.headers.get("ETag") || null,
-  };
+  throw lastErr || new Error("config api failed");
 }
 
-async function loadGeneratorConfig() {
-  const cached = readConfigCache();
+async function loadGeneratorConfig(seedCache = null) {
+  const cached = seedCache || readConfigCache();
+  if (hasFreshCache(cached)) {
+    return cached.data;
+  }
   try {
     const meta = await fetchConfigMeta();
     if (cached && Number(cached.version) === Number(meta.version)) {
+      writeConfigCache(cached);
       return cached.data;
     }
     const fresh = await fetchConfigWithOptionalEtag(cached);
     writeConfigCache(fresh);
     return fresh.data;
   } catch (apiErr) {
-    if (cached?.data) {
-      return cached.data;
+    const isLocal = ["localhost", "127.0.0.1"].includes(location.hostname);
+    if (isLocal) {
+      const fallback = await fetch("/assets/data/data.json");
+      if (!fallback.ok) throw apiErr;
+      const fallbackData = await fallback.json();
+      if (!isValidConfigData(fallbackData)) throw apiErr;
+      writeConfigCache({
+        version: null,
+        updatedAt: null,
+        data: fallbackData,
+        etag: null,
+      });
+      return fallbackData;
     }
-    const fallback = await fetch("/assets/data/data.json");
-    if (!fallback.ok) throw apiErr;
-    const fallbackData = await fallback.json();
-    writeConfigCache({
-      version: null,
-      updatedAt: null,
-      data: fallbackData,
-      etag: null,
-    });
-    return fallbackData;
+    throw apiErr;
   }
 }
 
-loadGeneratorConfig()
+loadGeneratorConfig(bootstrapCache)
   .then((data) => {
     FORMAT_OPTIONS = data.format;
     PRODUCT = parseMixedOptions(data.product);
@@ -2184,6 +2236,7 @@ loadGeneratorConfig()
       (_, i) => `v${i + 1}`,
     );
 
+    if (pageContentEl) pageContentEl.innerHTML = "";
     root = createRoot(document.getElementById("page-content"));
     state.subscribe(() => {
       syncStateToURL(state.get());
