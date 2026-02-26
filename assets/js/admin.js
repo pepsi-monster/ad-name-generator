@@ -26,6 +26,7 @@ let dupeWarning = null; // the duplicate value string when single chip input mat
 let historyOpen = false; // whether the history side panel is open
 let toastMsg = null; // toast notification message string, null when hidden
 let toastAction = null; // optional secondary action/history line
+let toastPrimaryAsSubject = false; // emphasize primary line with subject style when needed
 let toastTimer = null;
 let toastHideTimer = null;
 let lastActionTime = Date.now(); // time of the most recent change
@@ -57,6 +58,7 @@ function hasFreshCache(cache) {
 function showToastMsg(msg, ttl = 3000, opts = {}) {
   const includeLastAction = opts.includeLastAction !== false;
   toastMsg = msg;
+  toastPrimaryAsSubject = opts.primaryAsSubject === true;
   if (opts.actionText !== undefined) {
     toastAction = opts.actionText;
   } else if (includeLastAction && undoStack.length > 0) {
@@ -87,7 +89,9 @@ function renderToastPortal() {
   const el = getToastPortalEl();
   el.innerHTML = "";
   const label = document.createElement("div");
-  label.className = "toast-label";
+  label.className = toastPrimaryAsSubject
+    ? "toast-label toast-action-subject"
+    : "toast-label";
   label.textContent = toastMsg || "";
   el.appendChild(label);
   if (toastAction) {
@@ -128,6 +132,7 @@ function appendToastActionNodes(container, desc) {
 function hideToastPortal() {
   toastMsg = null;
   toastAction = null;
+  toastPrimaryAsSubject = false;
   const el = document.getElementById("global-toast");
   if (!el) return;
   el.classList.remove("toast--visible");
@@ -2191,7 +2196,7 @@ function HistoryPanel() {
   const steps = [];
   // Always show phantom base entry
   steps.push({
-    desc: "서버에서 데이터 불러오기",
+    desc: "서버에서 불러오기",
     time: serverLoadTime,
     idx: 0,
     isCurrent: undoStack.length === 0
@@ -2320,6 +2325,7 @@ async function submitData() {
     loadedConfigVersion = saved?.version ?? loadedConfigVersion;
     originalData = JSON.parse(JSON.stringify(data));
     dirty = false;
+    undoStack.length = 0;
     submitPending = false;
     submitting = false;
     document.getElementById("submit-btn")?.classList.remove("dirty");
@@ -2337,6 +2343,7 @@ async function submitData() {
     }
     showToastMsg("서버에 저장을 완료했어요!", 3000, {
       includeLastAction: false,
+      primaryAsSubject: true,
     });
     rerender();
   } catch (err) {
