@@ -1942,7 +1942,7 @@ function App() {
         h(
           "header",
           { className: "app-header" },
-          h("h1", { className: "app-title" }, "APPSILON 소재명 빌더"),
+          h("h1", { className: "app-title" }, "APPSILON 소재명 생성기"),
           h(
             "p",
             { className: "app-subtitle" },
@@ -2166,7 +2166,7 @@ if (pageContentEl && !hasFreshCache(bootstrapCache)) {
     <div class="app-loading">
       <div class="app-loading-card">
         <div class="app-loading-spinner" aria-hidden="true"></div>
-        <h2 class="app-loading-title">소재명 빌더를 준비하고 있어요</h2>
+        <h2 class="app-loading-title">소재명 생성기를 준비하고 있어요</h2>
         <p class="app-loading-copy">서버 설정을 확인한 뒤 화면을 열어드릴게요.</p>
         <div class="app-loading-bars" aria-hidden="true">
           <div class="app-loading-bar"></div>

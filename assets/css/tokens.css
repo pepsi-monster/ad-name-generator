@@ -98,12 +98,19 @@
   --space-8: 2rem;
   --space-10: 2.5rem;
   --space-12: 3rem;
+  --space-0_5: 2px;
+  --space-2_5: 0.625rem;
 
   --radius-sm: 4px;
   --radius-md: 6px;
   --radius-lg: 8px;
   --radius-xl: 12px;
   --radius-full: 9999px;
+
+  --size-avatar: 26px;
+  --size-loading-spinner: 24px;
+  --size-loading-bar: 8px;
+  --size-border-thin: 2px;
 
   --header-h: 48px;
 
