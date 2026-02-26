@@ -1003,7 +1003,25 @@ function buildName(fields) {
 function getBlockingWarnings(fields) {
   const { format, product, concept, subConcept, identifier, version, date } =
     fields;
+  if (format && !FORMAT_OPTIONS.includes(format)) {
+    return ["포맷이 현재 목록에 없어요. 다시 선택해 주세요."];
+  }
+  if (product && !PRODUCT.options.includes(product)) {
+    return ["제품이 현재 목록에 없어요. 다시 선택해 주세요."];
+  }
+  if (concept && !CONCEPT_OPTIONS.includes(concept)) {
+    return ["소재 컨셉이 현재 목록에 없어요. 다시 선택해 주세요."];
+  }
   const hasSubCategory = CONCEPTS_WITH_SUBCONCEPT.has(concept);
+  if (hasSubCategory && subConcept) {
+    const subOptions = SUB_CONCEPT_MAP[concept]?.options || [];
+    if (!subOptions.includes(subConcept)) {
+      return ["세부 컨셉이 현재 목록에 없어요. 다시 선택해 주세요."];
+    }
+  }
+  if (version && !VERSION_OPTIONS.includes(version)) {
+    return ["버전 값이 올바르지 않아요. 다시 선택해 주세요."];
+  }
   const trimmedIdentifier = identifier.trim();
   if (trimmedIdentifier && /^_+$/.test(trimmedIdentifier)) {
     if (trimmedIdentifier.length >= 13) {
@@ -1019,6 +1037,48 @@ function getBlockingWarnings(fields) {
     return ["소재 별명은 12자 이하로 지어 주세요."];
   }
   return [];
+}
+
+function sanitizeStateByCurrentConfig(s) {
+  const next = { ...s };
+  const dropped = [];
+
+  if (next.format && !FORMAT_OPTIONS.includes(next.format)) {
+    next.format = "";
+    dropped.push("포맷");
+  }
+  if (next.product && !PRODUCT.options.includes(next.product)) {
+    next.product = "";
+    dropped.push("제품");
+  }
+  if (next.concept && !CONCEPT_OPTIONS.includes(next.concept)) {
+    next.concept = "";
+    next.subConcept = "";
+    dropped.push("소재 컨셉");
+  }
+
+  const hasSub = CONCEPTS_WITH_SUBCONCEPT.has(next.concept);
+  if (!hasSub && next.subConcept) {
+    next.subConcept = "";
+    dropped.push("세부 컨셉");
+  } else if (hasSub && next.subConcept) {
+    const subOptions = SUB_CONCEPT_MAP[next.concept]?.options || [];
+    if (!subOptions.includes(next.subConcept)) {
+      next.subConcept = "";
+      dropped.push("세부 컨셉");
+    }
+  }
+
+  if (next.version && !VERSION_OPTIONS.includes(next.version)) {
+    next.version = FIELD_DEFAULTS.version;
+    dropped.push("버전");
+  }
+  if (next.date && !parseYYMMDD(next.date)) {
+    next.date = todayYYMMDD();
+    dropped.push("날짜");
+  }
+
+  return { next, dropped: [...new Set(dropped)] };
 }
 
 // ============================================================
@@ -1882,7 +1942,7 @@ function App() {
         h(
           "header",
           { className: "app-header" },
-          h("h1", { className: "app-title" }, "APPSILON 소재명 생성기"),
+          h("h1", { className: "app-title" }, "APPSILON 소재명 빌더"),
           h(
             "p",
             { className: "app-subtitle" },
@@ -2106,7 +2166,7 @@ if (pageContentEl && !hasFreshCache(bootstrapCache)) {
     <div class="app-loading">
       <div class="app-loading-card">
         <div class="app-loading-spinner" aria-hidden="true"></div>
-        <h2 class="app-loading-title">소재명 생성기를 준비하고 있어요</h2>
+        <h2 class="app-loading-title">소재명 빌더를 준비하고 있어요</h2>
         <p class="app-loading-copy">서버 설정을 확인한 뒤 화면을 열어드릴게요.</p>
         <div class="app-loading-bars" aria-hidden="true">
           <div class="app-loading-bar"></div>
@@ -2236,6 +2296,13 @@ loadGeneratorConfig(bootstrapCache)
       (_, i) => `v${i + 1}`,
     );
 
+    const currentState = state.get();
+    const { next, dropped } = sanitizeStateByCurrentConfig(currentState);
+    const changed = URL_FIELDS.some((k) => next[k] !== currentState[k]);
+    if (changed) {
+      state.set({ ...currentState, ...next, openDropdown: null });
+    }
+
     if (pageContentEl) pageContentEl.innerHTML = "";
     root = createRoot(document.getElementById("page-content"));
     state.subscribe(() => {
@@ -2245,6 +2312,9 @@ loadGeneratorConfig(bootstrapCache)
     // Sync restored state to URL immediately (handles localStorage restore with no URL params)
     syncStateToURL(state.get());
     root.render(App());
+    if (dropped.length > 0) {
+      showToast(`${dropped.join(", ")} 값이 현재 목록에 없어 초기화했어요.`);
+    }
   })
   .catch(() => {
     if (pageContentEl) {
