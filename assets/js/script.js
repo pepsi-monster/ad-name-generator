@@ -1006,7 +1006,7 @@ function getBlockingWarnings(fields) {
   if (format && !FORMAT_OPTIONS.includes(format)) {
     return ["포맷이 현재 목록에 없어요. 다시 선택해 주세요."];
   }
-  if (product && !PRODUCT.options.includes(product)) {
+  if (product && !PRODUCT.flat.includes(product)) {
     return ["제품이 현재 목록에 없어요. 다시 선택해 주세요."];
   }
   if (concept && !CONCEPT_OPTIONS.includes(concept)) {
@@ -1047,7 +1047,7 @@ function sanitizeStateByCurrentConfig(s) {
     next.format = "";
     dropped.push("포맷");
   }
-  if (next.product && !PRODUCT.options.includes(next.product)) {
+  if (next.product && !PRODUCT.flat.includes(next.product)) {
     next.product = "";
     dropped.push("제품");
   }
