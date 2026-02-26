@@ -401,6 +401,11 @@ const onAppClick = function (e) {
 
     case "confirm-restore-history": {
       const targetIdx = +ds.idx;
+      if (Number.isNaN(targetIdx) || targetIdx < 0 || targetIdx > undoStack.length) {
+        confirmPending = null;
+        rerender();
+        break;
+      }
       if (targetIdx === 0) {
         // Restore to original server data (phantom base)
         data = JSON.parse(JSON.stringify(originalData));
@@ -2245,6 +2250,11 @@ document.addEventListener("keydown", function (e) {
 
 document.addEventListener("click", onAppClick);
 
+const adminMainEl = document.getElementById("admin-main");
+if (adminMainEl) {
+  adminMainEl.textContent = "데이터를 불러오는 중이에요...";
+}
+
 async function loadInitialData() {
   try {
     const res = await fetch("/api/config");
@@ -2302,6 +2312,8 @@ loadInitialData()
     rerender();
   })
   .catch(() => {
-    document.getElementById("admin-main").textContent =
-      "초기 데이터를 불러오지 못했어요. API 또는 data.json 경로를 확인해 주세요.";
+    if (adminMainEl) {
+      adminMainEl.textContent =
+        "초기 데이터를 불러오지 못했어요. API 또는 data.json 경로를 확인해 주세요.";
+    }
   });

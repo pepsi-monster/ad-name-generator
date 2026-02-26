@@ -2074,8 +2074,28 @@ function App() {
 // INIT
 // ============================================================
 
-fetch("/assets/data/data.json")
-  .then((r) => r.json())
+const pageContentEl = document.getElementById("page-content");
+if (pageContentEl) {
+  pageContentEl.textContent = "데이터를 불러오는 중이에요...";
+}
+
+async function loadGeneratorConfig() {
+  try {
+    const res = await fetch("/api/config");
+    if (!res.ok) throw new Error(`config api failed (${res.status})`);
+    const payload = await res.json();
+    if (!payload?.data || typeof payload.data !== "object") {
+      throw new Error("Invalid config payload");
+    }
+    return payload.data;
+  } catch (apiErr) {
+    const fallback = await fetch("/assets/data/data.json");
+    if (!fallback.ok) throw apiErr;
+    return fallback.json();
+  }
+}
+
+loadGeneratorConfig()
   .then((data) => {
     FORMAT_OPTIONS = data.format;
     PRODUCT = parseMixedOptions(data.product);
@@ -2102,4 +2122,10 @@ fetch("/assets/data/data.json")
     // Sync restored state to URL immediately (handles localStorage restore with no URL params)
     syncStateToURL(state.get());
     root.render(App());
+  })
+  .catch(() => {
+    if (pageContentEl) {
+      pageContentEl.textContent =
+        "초기 데이터를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
+    }
   });
