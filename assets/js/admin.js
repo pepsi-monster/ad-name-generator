@@ -88,10 +88,16 @@ function getToastPortalEl() {
 function renderToastPortal() {
   const el = getToastPortalEl();
   el.innerHTML = "";
+  const singleLine = !toastAction;
   const label = document.createElement("div");
-  label.className = toastPrimaryAsSubject
-    ? "toast-label toast-action-subject"
-    : "toast-label";
+  label.className = singleLine
+    ? "toast-single-line"
+    : toastPrimaryAsSubject
+      ? "toast-label toast-action-subject"
+      : "toast-label";
+  if (singleLine && toastPrimaryAsSubject) {
+    label.classList.add("toast-action-subject");
+  }
   label.textContent = toastMsg || "";
   el.appendChild(label);
   if (toastAction) {

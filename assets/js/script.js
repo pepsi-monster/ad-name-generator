@@ -813,7 +813,10 @@ function showToast(message, name) {
     toast.appendChild(label);
     toast.appendChild(nameEl);
   } else {
-    toast.textContent = message;
+    const singleLine = document.createElement("div");
+    singleLine.className = "toast-single-line";
+    singleLine.textContent = message;
+    toast.appendChild(singleLine);
   }
   document.body.appendChild(toast);
 

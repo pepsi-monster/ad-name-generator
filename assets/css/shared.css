@@ -490,6 +490,13 @@
   margin-bottom: 0.25rem;
 }
 
+.toast-single-line {
+  font-size: var(--text-sm);
+  color: var(--text);
+  font-weight: var(--font-medium);
+  line-height: var(--leading-snug);
+}
+
 .text-highlight {
   color: var(--text-muted);
   font-weight: var(--font-bold);
