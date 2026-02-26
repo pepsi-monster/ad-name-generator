@@ -2075,23 +2075,93 @@ function App() {
 // ============================================================
 
 const pageContentEl = document.getElementById("page-content");
+const CONFIG_CACHE_KEY = "ad-gen-config-cache-v1";
 if (pageContentEl) {
-  pageContentEl.textContent = "데이터를 불러오는 중이에요...";
+  pageContentEl.innerHTML = `
+    <div class="app-loading">
+      <div class="app-loading-card">
+        <div class="app-loading-spinner" aria-hidden="true"></div>
+        <h2 class="app-loading-title">소재명 생성기를 준비하고 있어요</h2>
+        <p class="app-loading-copy">서버 설정을 확인한 뒤 화면을 열어드릴게요.</p>
+        <div class="app-loading-bars" aria-hidden="true">
+          <div class="app-loading-bar"></div>
+          <div class="app-loading-bar"></div>
+          <div class="app-loading-bar"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function readConfigCache() {
+  try {
+    const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.data || typeof parsed.data !== "object") return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeConfigCache(cache) {
+  try {
+    localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cache));
+  } catch (e) {
+    // Ignore localStorage write errors.
+  }
+}
+
+async function fetchConfigMeta() {
+  const res = await fetch("/api/config-meta", { cache: "no-store" });
+  if (!res.ok) throw new Error(`config meta api failed (${res.status})`);
+  return res.json();
+}
+
+async function fetchConfigWithOptionalEtag(cached) {
+  const headers = {};
+  if (cached?.etag) headers["If-None-Match"] = cached.etag;
+  const res = await fetch("/api/config", { headers, cache: "no-store" });
+  if (res.status === 304 && cached?.data) return cached;
+  if (!res.ok) throw new Error(`config api failed (${res.status})`);
+  const payload = await res.json();
+  if (!payload?.data || typeof payload.data !== "object") {
+    throw new Error("Invalid config payload");
+  }
+  return {
+    version: payload.version,
+    updatedAt: payload.updatedAt,
+    data: payload.data,
+    etag: res.headers.get("ETag") || null,
+  };
 }
 
 async function loadGeneratorConfig() {
+  const cached = readConfigCache();
   try {
-    const res = await fetch("/api/config");
-    if (!res.ok) throw new Error(`config api failed (${res.status})`);
-    const payload = await res.json();
-    if (!payload?.data || typeof payload.data !== "object") {
-      throw new Error("Invalid config payload");
+    const meta = await fetchConfigMeta();
+    if (cached && Number(cached.version) === Number(meta.version)) {
+      return cached.data;
     }
-    return payload.data;
+    const fresh = await fetchConfigWithOptionalEtag(cached);
+    writeConfigCache(fresh);
+    return fresh.data;
   } catch (apiErr) {
+    if (cached?.data) {
+      return cached.data;
+    }
     const fallback = await fetch("/assets/data/data.json");
     if (!fallback.ok) throw apiErr;
-    return fallback.json();
+    const fallbackData = await fallback.json();
+    writeConfigCache({
+      version: null,
+      updatedAt: null,
+      data: fallbackData,
+      etag: null,
+    });
+    return fallbackData;
   }
 }
 
@@ -2125,7 +2195,13 @@ loadGeneratorConfig()
   })
   .catch(() => {
     if (pageContentEl) {
-      pageContentEl.textContent =
-        "초기 데이터를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.";
+      pageContentEl.innerHTML = `
+        <div class="app-loading">
+          <div class="app-loading-card">
+            <h2 class="app-loading-title">데이터 로딩에 실패했어요</h2>
+            <p class="app-loading-copy">잠시 후 새로고침 해주세요.</p>
+          </div>
+        </div>
+      `;
     }
   });

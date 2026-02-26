@@ -6,6 +6,15 @@ function sendJson(res, status, payload) {
   res.end(JSON.stringify(payload));
 }
 
+function makeEtag(row) {
+  const stamp = row?.updated_at ? Date.parse(row.updated_at) : 0;
+  return `W/"cfg-${row?.id || 0}-${row?.version || 0}-${Number.isFinite(stamp) ? stamp : 0}"`;
+}
+
+function setCacheHeaders(res) {
+  res.setHeader("Cache-Control", "private, max-age=0, must-revalidate");
+}
+
 function getSupabaseHeaders(preferResolution = false) {
   const headers = {
     apikey: SUPABASE_SECRET_KEY,
@@ -71,6 +80,13 @@ module.exports = async function handler(req, res) {
   if (req.method === "GET") {
     try {
       const row = await fetchConfigRow();
+      const etag = makeEtag(row);
+      setCacheHeaders(res);
+      res.setHeader("ETag", etag);
+      if (req.headers["if-none-match"] && req.headers["if-none-match"] === etag) {
+        res.status(304).end();
+        return;
+      }
       return sendJson(res, 200, {
         id: row.id,
         version: row.version,
@@ -106,11 +122,12 @@ module.exports = async function handler(req, res) {
         changed_at: now,
       });
 
+      const etag = makeEtag(updated);
+      setCacheHeaders(res);
+      res.setHeader("ETag", etag);
       return sendJson(res, 200, {
         ok: true,
-        id: updated.id,
         version: updated.version,
-        data: updated.data,
         updatedAt: updated.updated_at,
       });
     } catch (err) {

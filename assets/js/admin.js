@@ -26,6 +26,7 @@ let dupeWarning = null; // the duplicate value string when single chip input mat
 let historyOpen = false; // whether the history side panel is open
 let toastMsg = null; // toast notification message string, null when hidden
 let lastActionTime = Date.now(); // time of the most recent change
+const CONFIG_CACHE_KEY = "ad-gen-config-cache-v1";
 
 // ─── Undo ─────────────────────────────────────────────────────
 const undoStack = [];
@@ -2216,16 +2217,26 @@ async function submitData() {
     }
 
     const saved = await res.json();
-    const nextData = saved?.data && typeof saved.data === "object" ? saved.data : data;
-
-    originalData = JSON.parse(JSON.stringify(nextData));
-    data = JSON.parse(JSON.stringify(nextData));
+    originalData = JSON.parse(JSON.stringify(data));
     dirty = false;
     submitPending = false;
     submitting = false;
     document.getElementById("submit-btn")?.classList.remove("dirty");
     localStorage.removeItem("ad-name-generator-draft");
     serverLoadTime = Date.now();
+    try {
+      localStorage.setItem(
+        CONFIG_CACHE_KEY,
+        JSON.stringify({
+          version: saved?.version ?? null,
+          updatedAt: saved?.updatedAt ?? null,
+          data,
+          etag: null,
+        }),
+      );
+    } catch (e) {
+      // Ignore localStorage write errors.
+    }
     rerender();
   } catch (err) {
     submitError = err.message || "저장에 실패했어요. 다시 시도해주세요.";
@@ -2252,19 +2263,91 @@ document.addEventListener("click", onAppClick);
 
 const adminMainEl = document.getElementById("admin-main");
 if (adminMainEl) {
-  adminMainEl.textContent = "데이터를 불러오는 중이에요...";
+  adminMainEl.innerHTML = `
+    <div class="app-loading">
+      <div class="app-loading-card">
+        <div class="app-loading-spinner" aria-hidden="true"></div>
+        <h2 class="app-loading-title">태그 데이터를 불러오고 있어요</h2>
+        <p class="app-loading-copy">서버 설정을 동기화한 뒤 에디터를 열어드릴게요.</p>
+        <div class="app-loading-bars" aria-hidden="true">
+          <div class="app-loading-bar"></div>
+          <div class="app-loading-bar"></div>
+          <div class="app-loading-bar"></div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function readConfigCache() {
+  try {
+    const raw = localStorage.getItem(CONFIG_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    if (!parsed.data || typeof parsed.data !== "object") return null;
+    return parsed;
+  } catch (e) {
+    return null;
+  }
+}
+
+function writeConfigCache(cache) {
+  try {
+    localStorage.setItem(CONFIG_CACHE_KEY, JSON.stringify(cache));
+  } catch (e) {
+    // Ignore localStorage write errors.
+  }
+}
+
+async function fetchConfigMeta() {
+  const res = await fetch("/api/config-meta", { cache: "no-store" });
+  if (!res.ok) throw new Error(`config meta api failed (${res.status})`);
+  return res.json();
+}
+
+async function fetchConfigWithOptionalEtag(cached) {
+  const headers = {};
+  if (cached?.etag) headers["If-None-Match"] = cached.etag;
+  const res = await fetch("/api/config", { headers, cache: "no-store" });
+  if (res.status === 304 && cached?.data) return cached;
+  if (!res.ok) throw new Error(`config api failed (${res.status})`);
+  const payload = await res.json();
+  if (!payload?.data || typeof payload.data !== "object") {
+    throw new Error("Invalid config payload");
+  }
+  return {
+    version: payload.version,
+    updatedAt: payload.updatedAt,
+    data: payload.data,
+    etag: res.headers.get("ETag") || null,
+  };
 }
 
 async function loadInitialData() {
+  const cached = readConfigCache();
   try {
-    const res = await fetch("/api/config");
-    if (!res.ok) throw new Error(`config api failed (${res.status})`);
-    const payload = await res.json();
-    return payload?.data;
+    const meta = await fetchConfigMeta();
+    if (cached && Number(cached.version) === Number(meta.version)) {
+      return cached.data;
+    }
+    const fresh = await fetchConfigWithOptionalEtag(cached);
+    writeConfigCache(fresh);
+    return fresh.data;
   } catch (apiErr) {
+    if (cached?.data) {
+      return cached.data;
+    }
     const fallback = await fetch("/assets/data/data.json");
     if (!fallback.ok) throw apiErr;
-    return fallback.json();
+    const fallbackData = await fallback.json();
+    writeConfigCache({
+      version: null,
+      updatedAt: null,
+      data: fallbackData,
+      etag: null,
+    });
+    return fallbackData;
   }
 }
 
@@ -2313,7 +2396,13 @@ loadInitialData()
   })
   .catch(() => {
     if (adminMainEl) {
-      adminMainEl.textContent =
-        "초기 데이터를 불러오지 못했어요. API 또는 data.json 경로를 확인해 주세요.";
+      adminMainEl.innerHTML = `
+        <div class="app-loading">
+          <div class="app-loading-card">
+            <h2 class="app-loading-title">초기 로딩에 실패했어요</h2>
+            <p class="app-loading-copy">API 또는 data.json 경로를 확인해 주세요.</p>
+          </div>
+        </div>
+      `;
     }
   });
